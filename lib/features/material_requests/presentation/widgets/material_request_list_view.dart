@@ -22,6 +22,7 @@ class MaterialRequestListView extends StatefulWidget {
 class _MaterialRequestListViewState extends State<MaterialRequestListView> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
+  String _sortBy = 'date_desc';
 
   @override
   void initState() {
@@ -103,6 +104,32 @@ class _MaterialRequestListViewState extends State<MaterialRequestListView> {
                   );
                 }
 
+                final requests = List<MaterialRequest>.from(state.requests);
+                requests.sort((a, b) {
+                  switch (_sortBy) {
+                    case 'date_desc':
+                      if (a.transactionDate == null && b.transactionDate == null) return 0;
+                      if (a.transactionDate == null) return 1;
+                      if (b.transactionDate == null) return -1;
+                      return b.transactionDate!.compareTo(a.transactionDate!);
+                    case 'date_asc':
+                      if (a.transactionDate == null && b.transactionDate == null) return 0;
+                      if (a.transactionDate == null) return 1;
+                      if (b.transactionDate == null) return -1;
+                      return a.transactionDate!.compareTo(b.transactionDate!);
+                    case 'type_asc':
+                      return a.materialRequestType.compareTo(b.materialRequestType);
+                    case 'status_asc':
+                      return a.status.compareTo(b.status);
+                    case 'id_desc':
+                      return b.name.compareTo(a.name);
+                    case 'id_asc':
+                      return a.name.compareTo(b.name);
+                    default:
+                      return 0;
+                  }
+                });
+
                 return RefreshIndicator(
                   onRefresh: () async {
                     context.read<MaterialRequestBloc>().add(
@@ -113,12 +140,12 @@ class _MaterialRequestListViewState extends State<MaterialRequestListView> {
                     controller: _scrollController,
                     padding: const EdgeInsets.all(AppSizes.s16),
                     itemCount: state.hasReachedMax
-                        ? state.requests.length
-                        : state.requests.length + 1,
+                        ? requests.length
+                        : requests.length + 1,
                     separatorBuilder: (context, index) =>
                         const SizedBox(height: AppSizes.s12),
                     itemBuilder: (context, index) {
-                      if (index >= state.requests.length) {
+                      if (index >= requests.length) {
                         return const Center(
                           child: Padding(
                             padding: EdgeInsets.all(AppSizes.s8),
@@ -127,7 +154,7 @@ class _MaterialRequestListViewState extends State<MaterialRequestListView> {
                         );
                       }
 
-                      final request = state.requests[index];
+                      final request = requests[index];
                       return _MaterialRequestCard(request: request);
                     },
                   ),
@@ -161,59 +188,95 @@ class _MaterialRequestListViewState extends State<MaterialRequestListView> {
   Widget _buildFilters(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(AppSizes.s16),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search Request ID...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.r8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSizes.s12,
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search Request ID...',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppSizes.r8),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppSizes.s12,
+              ),
+            ),
+            onChanged: (value) {
+              context.read<MaterialRequestBloc>().add(SearchChanged(value));
+            },
+          ),
+          const SizedBox(height: AppSizes.s12),
+          Row(
+            children: [
+              Expanded(
+                child: BlocBuilder<MaterialRequestBloc, MaterialRequestState>(
+                  builder: (context, state) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: AppSizes.s12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppSizes.r8),
+                        border: Border.all(color: AppColors.outlineVariant),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: state.filterStatus,
+                          hint: const Text('All Status'),
+                          isExpanded: true,
+                          items:
+                              [
+                                'Draft',
+                                'Submitted',
+                                'Cancelled',
+                              ].map((String value) {
+                                return DropdownMenuItem<String>(
+                                  value: value,
+                                  child: Text(value),
+                                );
+                              }).toList(),
+                          onChanged: (value) {
+                            context.read<MaterialRequestBloc>().add(
+                              FilterChanged(value),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
-              onChanged: (value) {
-                context.read<MaterialRequestBloc>().add(SearchChanged(value));
-              },
-            ),
-          ),
-          const SizedBox(width: AppSizes.s12),
-          BlocBuilder<MaterialRequestBloc, MaterialRequestState>(
-            builder: (context, state) {
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSizes.s12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppSizes.r8),
-                  border: Border.all(color: AppColors.outlineVariant),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: state.filterStatus,
-                    hint: const Text('All Status'),
-                    items:
-                        [
-                          'Draft',
-                          'Submitted',
-                          'Cancelled',
-                        ].map((String value) {
-                          return DropdownMenuItem<String>(
-                            value: value,
-                            child: Text(value),
-                          );
-                        }).toList(),
-                    onChanged: (value) {
-                      context.read<MaterialRequestBloc>().add(
-                        FilterChanged(value),
-                      );
-                    },
+              const SizedBox(width: AppSizes.s12),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSizes.s12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppSizes.r8),
+                    border: Border.all(color: AppColors.outlineVariant),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _sortBy,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'date_desc', child: Text('Newest Date')),
+                        DropdownMenuItem(value: 'date_asc', child: Text('Oldest Date')),
+                        DropdownMenuItem(value: 'type_asc', child: Text('Sort by Type')),
+                        DropdownMenuItem(value: 'status_asc', child: Text('Sort by Status')),
+                        DropdownMenuItem(value: 'id_desc', child: Text('ID (Z-A)')),
+                        DropdownMenuItem(value: 'id_asc', child: Text('ID (A-Z)')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _sortBy = value;
+                          });
+                        }
+                      },
+                    ),
                   ),
                 ),
-              );
-            },
+              ),
+            ],
           ),
         ],
       ),

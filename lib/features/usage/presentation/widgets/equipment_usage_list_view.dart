@@ -20,6 +20,7 @@ class EquipmentUsageListView extends StatefulWidget {
 class _EquipmentUsageListViewState extends State<EquipmentUsageListView> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
+  String _sortBy = 'date_desc';
 
   @override
   void initState() {
@@ -102,6 +103,32 @@ class _EquipmentUsageListViewState extends State<EquipmentUsageListView> {
                   );
                 }
 
+                final usages = List<EquipmentUsage>.from(state.usages);
+                usages.sort((a, b) {
+                  switch (_sortBy) {
+                    case 'date_desc':
+                      if (a.siteDate == null && b.siteDate == null) return 0;
+                      if (a.siteDate == null) return 1;
+                      if (b.siteDate == null) return -1;
+                      return b.siteDate!.compareTo(a.siteDate!);
+                    case 'date_asc':
+                      if (a.siteDate == null && b.siteDate == null) return 0;
+                      if (a.siteDate == null) return 1;
+                      if (b.siteDate == null) return -1;
+                      return a.siteDate!.compareTo(b.siteDate!);
+                    case 'project_asc':
+                      return a.project.compareTo(b.project);
+                    case 'status_asc':
+                      return a.status.compareTo(b.status);
+                    case 'id_desc':
+                      return b.name.compareTo(a.name);
+                    case 'id_asc':
+                      return a.name.compareTo(b.name);
+                    default:
+                      return 0;
+                  }
+                });
+
                 return RefreshIndicator(
                   onRefresh: () async {
                     context.read<EquipmentUsageBloc>().add(
@@ -112,12 +139,12 @@ class _EquipmentUsageListViewState extends State<EquipmentUsageListView> {
                     controller: _scrollController,
                     padding: const EdgeInsets.all(AppSizes.s16),
                     itemCount: state.hasReachedMax
-                        ? state.usages.length
-                        : state.usages.length + 1,
+                        ? usages.length
+                        : usages.length + 1,
                     separatorBuilder: (context, index) =>
                         const SizedBox(height: AppSizes.s12),
                     itemBuilder: (context, index) {
-                      if (index >= state.usages.length) {
+                      if (index >= usages.length) {
                         return const Center(
                           child: Padding(
                             padding: EdgeInsets.all(AppSizes.s8),
@@ -126,7 +153,7 @@ class _EquipmentUsageListViewState extends State<EquipmentUsageListView> {
                         );
                       }
 
-                      final usage = state.usages[index];
+                      final usage = usages[index];
                       return _EquipmentUsageCard(usage: usage);
                     },
                   ),
@@ -160,56 +187,92 @@ class _EquipmentUsageListViewState extends State<EquipmentUsageListView> {
   Widget _buildFilters(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(AppSizes.s16),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search Usage ID...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.r8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSizes.s12,
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search Usage ID...',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppSizes.r8),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppSizes.s12,
+              ),
+            ),
+            onChanged: (value) {
+              context.read<EquipmentUsageBloc>().add(SearchChanged(value));
+            },
+          ),
+          const SizedBox(height: AppSizes.s12),
+          Row(
+            children: [
+              Expanded(
+                child: BlocBuilder<EquipmentUsageBloc, EquipmentUsageState>(
+                  builder: (context, state) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: AppSizes.s12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppSizes.r8),
+                        border: Border.all(color: AppColors.outlineVariant),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: state.filterStatus,
+                          hint: const Text('All Status'),
+                          isExpanded: true,
+                          items: ['Draft', 'Submitted', 'Cancelled'].map((
+                            String value,
+                          ) {
+                            return DropdownMenuItem<String>(
+                              value: value,
+                              child: Text(value),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            context.read<EquipmentUsageBloc>().add(
+                              FilterChanged(value),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
-              onChanged: (value) {
-                context.read<EquipmentUsageBloc>().add(SearchChanged(value));
-              },
-            ),
-          ),
-          const SizedBox(width: AppSizes.s12),
-          BlocBuilder<EquipmentUsageBloc, EquipmentUsageState>(
-            builder: (context, state) {
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSizes.s12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppSizes.r8),
-                  border: Border.all(color: AppColors.outlineVariant),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: state.filterStatus,
-                    hint: const Text('All Status'),
-                    items: ['Draft', 'Submitted', 'Cancelled'].map((
-                      String value,
-                    ) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      context.read<EquipmentUsageBloc>().add(
-                        FilterChanged(value),
-                      );
-                    },
+              const SizedBox(width: AppSizes.s12),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSizes.s12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppSizes.r8),
+                    border: Border.all(color: AppColors.outlineVariant),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _sortBy,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'date_desc', child: Text('Newest Date')),
+                        DropdownMenuItem(value: 'date_asc', child: Text('Oldest Date')),
+                        DropdownMenuItem(value: 'project_asc', child: Text('Sort by Project')),
+                        DropdownMenuItem(value: 'status_asc', child: Text('Sort by Status')),
+                        DropdownMenuItem(value: 'id_desc', child: Text('ID (Z-A)')),
+                        DropdownMenuItem(value: 'id_asc', child: Text('ID (A-Z)')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _sortBy = value;
+                          });
+                        }
+                      },
+                    ),
                   ),
                 ),
-              );
-            },
+              ),
+            ],
           ),
         ],
       ),

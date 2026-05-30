@@ -10,8 +10,59 @@ import 'package:cms/features/projects/presentation/pages/project_list_page.dart'
 import 'package:cms/features/usage/presentation/pages/usage_page.dart';
 import 'package:cms/features/auth/presentation/pages/profile_page.dart';
 
-class ProjectsHomePage extends StatelessWidget {
+class ProjectsHomePage extends StatefulWidget {
   const ProjectsHomePage({super.key});
+
+  @override
+  State<ProjectsHomePage> createState() => _ProjectsHomePageState();
+}
+
+class _ProjectsHomePageState extends State<ProjectsHomePage> {
+  String _searchQuery = '';
+  String _sortBy = 'name';
+
+  List<Project> _getFilteredAndSortedProjects(List<Project> projects) {
+    var filtered = projects.where((p) {
+      final query = _searchQuery.toLowerCase();
+      return p.projectName.toLowerCase().contains(query) ||
+          p.status.toLowerCase().contains(query);
+    }).toList();
+
+    filtered.sort((a, b) {
+      if (_sortBy == 'name') {
+        return a.projectName.toLowerCase().compareTo(b.projectName.toLowerCase());
+      } else if (_sortBy == 'progress') {
+        return b.progress.compareTo(a.progress);
+      } else if (_sortBy == 'expectedEndDate') {
+        if (a.expectedEndDate == null && b.expectedEndDate == null) return 0;
+        if (a.expectedEndDate == null) return 1;
+        if (b.expectedEndDate == null) return -1;
+        return a.expectedEndDate!.compareTo(b.expectedEndDate!);
+      } else if (_sortBy == 'priority') {
+        final pA = _priorityValue(a.priority);
+        final pB = _priorityValue(b.priority);
+        return pB.compareTo(pA); // Highest priority first
+      } else if (_sortBy == 'status') {
+        return a.status.toLowerCase().compareTo(b.status.toLowerCase());
+      }
+      return 0;
+    });
+
+    return filtered;
+  }
+
+  int _priorityValue(String? priority) {
+    switch (priority) {
+      case 'High':
+        return 3;
+      case 'Medium':
+        return 2;
+      case 'Low':
+        return 1;
+      default:
+        return 0;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,6 +71,11 @@ class ProjectsHomePage extends StatelessWidget {
       appBar: const CustomAppBar(),
       body: BlocBuilder<ProjectBloc, ProjectState>(
         builder: (context, state) {
+          List<Project> displayProjects = [];
+          if (state is ProjectLoaded) {
+            displayProjects = _getFilteredAndSortedProjects(state.projects);
+          }
+
           return RefreshIndicator(
             onRefresh: () async {
               context.read<ProjectBloc>().add(GetProjectsRequested());
@@ -40,6 +96,66 @@ class ProjectsHomePage extends StatelessWidget {
                     ),
                   ),
                 ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            decoration: InputDecoration(
+                              hintText: 'Search projects...',
+                              prefixIcon: const Icon(Icons.search),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: AppColors.outlineVariant),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              filled: true,
+                              fillColor: AppColors.surfaceContainerLowest,
+                            ),
+                            onChanged: (val) {
+                              setState(() {
+                                _searchQuery = val;
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.outlineVariant),
+                            color: AppColors.surfaceContainerLowest,
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _sortBy,
+                              items: const [
+                                DropdownMenuItem(value: 'name', child: Text('Sort by Name')),
+                                DropdownMenuItem(value: 'progress', child: Text('Sort by Progress')),
+                                DropdownMenuItem(value: 'expectedEndDate', child: Text('Sort by End Date')),
+                                DropdownMenuItem(value: 'priority', child: Text('Sort by Priority')),
+                                DropdownMenuItem(value: 'status', child: Text('Sort by Status')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() {
+                                    _sortBy = val;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 if (state is ProjectLoaded && state.projects.isNotEmpty)
                   SliverToBoxAdapter(
                     child: _buildSummarySection(state.projects),
@@ -51,7 +167,7 @@ class ProjectsHomePage extends StatelessWidget {
                 else if (state is ProjectError)
                   SliverFillRemaining(child: Center(child: Text(state.message)))
                 else if (state is ProjectLoaded)
-                  state.projects.isEmpty
+                  displayProjects.isEmpty
                       ? SliverFillRemaining(child: _buildEmptyState())
                       : SliverPadding(
                           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -68,9 +184,9 @@ class ProjectsHomePage extends StatelessWidget {
                               index,
                             ) {
                               return ProjectCard(
-                                project: state.projects[index],
+                                project: displayProjects[index],
                               );
-                            }, childCount: state.projects.length),
+                            }, childCount: displayProjects.length),
                           ),
                         ),
                 const SliverToBoxAdapter(
