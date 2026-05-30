@@ -1,0 +1,88 @@
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../domain/repositories/stock_entry_repository.dart';
+import 'stock_entry_event.dart';
+import 'stock_entry_state.dart';
+
+class StockEntryBloc extends Bloc<StockEntryEvent, StockEntryState> {
+  final StockEntryRepository repository;
+
+  StockEntryBloc({required this.repository}) : super(const StockEntryState()) {
+    on<LoadStockEntries>(_onLoadStockEntries);
+    on<LoadStockEntryDetails>(_onLoadStockEntryDetails);
+  }
+
+  Future<void> _onLoadStockEntries(
+    LoadStockEntries event,
+    Emitter<StockEntryState> emit,
+  ) async {
+    final project = event.project ?? state.project;
+    if (event.isRefresh) {
+      emit(
+        state.copyWith(
+          listStatus: StockEntryStatus.loading,
+          currentPage: 1,
+          hasReachedMax: false,
+          entries: [],
+          project: project,
+        ),
+      );
+    } else if (state.hasReachedMax) {
+      return;
+    } else {
+      emit(state.copyWith(listStatus: StockEntryStatus.loading, project: project));
+    }
+
+    final result = await repository.getStockEntries(
+      page: state.currentPage,
+      status: event.status,
+      search: event.search,
+      stockEntryType: event.stockEntryType,
+      project: project,
+    );
+
+    result.fold(
+      (failure) => emit(
+        state.copyWith(
+          listStatus: StockEntryStatus.failure,
+          errorMessage: failure.message,
+        ),
+      ),
+      (newEntries) {
+        final List<dynamic> allEntries = List.from(state.entries)
+          ..addAll(newEntries);
+        emit(
+          state.copyWith(
+            listStatus: StockEntryStatus.success,
+            entries: allEntries.cast(),
+            hasReachedMax: newEntries.length < 20,
+            currentPage: state.currentPage + 1,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _onLoadStockEntryDetails(
+    LoadStockEntryDetails event,
+    Emitter<StockEntryState> emit,
+  ) async {
+    emit(state.copyWith(detailStatus: StockEntryStatus.loading));
+
+    final result = await repository.getStockEntryDetails(event.name);
+
+    result.fold(
+      (failure) => emit(
+        state.copyWith(
+          detailStatus: StockEntryStatus.failure,
+          errorMessage: failure.message,
+        ),
+      ),
+      (entry) => emit(
+        state.copyWith(
+          detailStatus: StockEntryStatus.success,
+          selectedEntry: entry,
+        ),
+      ),
+    );
+  }
+}
