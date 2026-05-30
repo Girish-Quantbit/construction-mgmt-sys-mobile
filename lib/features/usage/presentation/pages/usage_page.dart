@@ -7,6 +7,8 @@ import '../bloc/manpower_usage_bloc.dart';
 import '../bloc/equipment_usage_bloc.dart';
 import '../widgets/manpower_usage_list_view.dart';
 import '../widgets/equipment_usage_list_view.dart';
+import '../../../material_requests/presentation/bloc/material_request_bloc.dart';
+import '../../../material_requests/presentation/widgets/material_request_list_view.dart';
 
 class UsagePage extends StatelessWidget {
   const UsagePage({super.key});
@@ -14,7 +16,7 @@ class UsagePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: const CustomAppBar(
@@ -23,6 +25,7 @@ class UsagePage extends StatelessWidget {
             tabs: [
               Tab(text: 'Manpower'),
               Tab(text: 'Equipment'),
+              Tab(text: 'Material Request'),
             ],
             indicatorColor: AppColors.primary,
             labelColor: AppColors.primary,
@@ -38,6 +41,10 @@ class UsagePage extends StatelessWidget {
             BlocProvider(
               create: (context) => sl<EquipmentUsageBloc>(),
               child: const EquipmentUsageListView(),
+            ),
+            BlocProvider(
+              create: (context) => sl<MaterialRequestBloc>(),
+              child: const MaterialRequestListView(),
             ),
           ],
         ),

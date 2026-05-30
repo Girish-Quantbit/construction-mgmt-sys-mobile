@@ -38,7 +38,10 @@ class _CustomMetaService extends MetaService {
         'description': 'item_code.description',
         'uom': 'item_code.stock_uom',
         'stock_uom': 'item_code.stock_uom',
+        'conversion_factor': 'item_code.conversion_factor',
         'rate': 'item_code.valuation_rate',
+        'amount': 'item_code.valuation_rate',
+        'qty': 'item_code.qty',
         'expense_account': 'item_code.expense_account',
         'cost_center': 'item_code.cost_center',
       };

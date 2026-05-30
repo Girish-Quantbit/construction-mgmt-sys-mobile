@@ -4,6 +4,90 @@ import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import 'package:cms/core/di/injection_container.dart';
 import 'package:cms/core/theme/app_colors.dart';
 
+class _CustomMetaService extends MetaService {
+  _CustomMetaService(super.client, super.database);
+
+  @override
+  Future<DocTypeMeta> getMeta(
+    String doctype, {
+    bool forceRefresh = false,
+  }) async {
+    final meta = await super.getMeta(doctype, forceRefresh: forceRefresh);
+    if (doctype == 'Stock Entry Detail') {
+      final allowedFields = [
+        'item_code',
+        'item_name',
+        'description',
+        'qty',
+        'uom',
+        'stock_uom',
+        'conversion_factor',
+        's_warehouse',
+        't_warehouse',
+        'basic_rate',
+        'amount',
+        'project',
+        'cost_center',
+      ];
+      final fetchFromMappings = {
+        'item_name': 'item_code.item_name',
+        'description': 'item_code.description',
+        'uom': 'item_code.stock_uom',
+        'stock_uom': 'item_code.stock_uom',
+        'basic_rate': 'item_code.valuation_rate',
+      };
+
+      final enrichedFields = meta.fields.map((f) {
+        final hasCustomFetch = fetchFromMappings.containsKey(f.fieldname);
+        return DocField(
+          fieldname: f.fieldname,
+          fieldtype: f.fieldtype,
+          label: f.label,
+          reqd: f.reqd,
+          readOnly: f.readOnly,
+          hidden: f.hidden,
+          options: f.options,
+          dependsOn: f.dependsOn,
+          mandatoryDependsOn: f.mandatoryDependsOn,
+          readOnlyDependsOn: f.readOnlyDependsOn,
+          linkFilters: f.linkFilters,
+          fetchFrom: hasCustomFetch
+              ? fetchFromMappings[f.fieldname]
+              : f.fetchFrom,
+          section: f.section,
+          defaultValue: f.defaultValue,
+          description: f.description,
+          placeholder: f.placeholder,
+          precision: f.precision,
+          length: f.length,
+          idx: f.idx,
+          inListView: f.inListView,
+          allowMultiple: f.allowMultiple,
+        );
+      }).toList();
+
+      enrichedFields.retainWhere((f) => allowedFields.contains(f.fieldname));
+      enrichedFields.sort((a, b) {
+        final indexA = allowedFields.indexOf(a.fieldname ?? '');
+        final indexB = allowedFields.indexOf(b.fieldname ?? '');
+        return indexA.compareTo(indexB);
+      });
+
+      return DocTypeMeta(
+        name: meta.name,
+        label: meta.label,
+        fields: enrichedFields,
+        isTable: meta.isTable,
+        metaData: meta.metaData,
+        titleField: meta.titleField,
+        sortField: meta.sortField,
+        sortOrder: meta.sortOrder,
+      );
+    }
+    return meta;
+  }
+}
+
 class MaterialTransferFormPage extends StatefulWidget {
   final String? stockEntryType;
   final String? entryName;
@@ -20,6 +104,7 @@ class _MaterialTransferFormPageState extends State<MaterialTransferFormPage> {
   String? _error;
   DocTypeMeta? _meta;
   Document? _document;
+  late MetaService _customMetaService;
 
   @override
   void initState() {
@@ -30,16 +115,18 @@ class _MaterialTransferFormPageState extends State<MaterialTransferFormPage> {
   Future<void> _fetchMeta() async {
     try {
       final sdk = sl<FrappeSDK>();
-      final meta = await sdk.meta.getMeta('Stock Entry', forceRefresh: true);
+      _customMetaService = _CustomMetaService(sdk.api, sdk.database);
+      final meta = await _customMetaService.getMeta('Stock Entry', forceRefresh: true);
 
-      // Filter fields as per requirement
       final allowedFields = {
         'naming_series',
         'stock_entry_type',
         'posting_date',
         'posting_time',
-        'add_to_transit',
-        'apply_putaway_rule',
+        if (widget.stockEntryType == 'Material Transfer') ...[
+          'add_to_transit',
+          'apply_putaway_rule',
+        ],
         'from_warehouse',
         'to_warehouse',
         'scan_barcode',
@@ -113,19 +200,22 @@ class _MaterialTransferFormPageState extends State<MaterialTransferFormPage> {
 
     final sdk = sl<FrappeSDK>();
 
-    return FormScreen(
-      meta: _meta!,
-      document: _document,
-      repository: sdk.repository,
-      api: sdk.api,
-      metaService: sdk.meta,
-      linkOptionService: sdk.linkOptions,
-      initialData: widget.stockEntryType != null
-          ? {'stock_entry_type': widget.stockEntryType}
-          : null,
-      onSaveSuccess: () {
-        Navigator.pop(context, true);
-      },
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: FormScreen(
+        meta: _meta!,
+        document: _document,
+        repository: sdk.repository,
+        api: sdk.api,
+        metaService: _customMetaService,
+        linkOptionService: sdk.linkOptions,
+        initialData: widget.stockEntryType != null
+            ? {'stock_entry_type': widget.stockEntryType}
+            : null,
+        onSaveSuccess: () {
+          Navigator.pop(context, true);
+        },
+      ),
     );
   }
 }

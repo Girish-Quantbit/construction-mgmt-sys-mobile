@@ -5,8 +5,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cms/core/di/injection_container.dart';
 import 'package:cms/features/purchase_receipts/presentation/bloc/purchase_receipt_bloc.dart';
 import 'package:cms/features/purchase_receipts/presentation/widgets/purchase_receipt_list_view.dart';
-import 'package:cms/features/material_requests/presentation/bloc/material_request_bloc.dart';
-import 'package:cms/features/material_requests/presentation/widgets/material_request_list_view.dart';
 import 'package:cms/features/stock_entry/presentation/bloc/stock_entry_bloc.dart';
 import 'package:cms/features/stock_entry/presentation/widgets/material_transfer_list_view.dart';
 import 'package:cms/features/stock_entry/presentation/widgets/stock_entry_list_view.dart';
@@ -21,7 +19,7 @@ class ProjectListPage extends StatelessWidget {
   Widget build(BuildContext context) {
     debugPrint('Building ProjectListPage');
     return DefaultTabController(
-      length: 5,
+      length: 4,
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: CustomAppBar(
@@ -34,7 +32,6 @@ class ProjectListPage extends StatelessWidget {
             unselectedLabelColor: AppColors.onSurfaceVariant,
             tabs: [
               Tab(text: 'Purchase Receipt'),
-              Tab(text: 'Material Request'),
               Tab(text: 'Material Issue'),
               Tab(text: 'Stock Entry'),
               Tab(text: 'Material Transfer'),
@@ -46,10 +43,6 @@ class ProjectListPage extends StatelessWidget {
             BlocProvider(
               create: (context) => sl<PurchaseReceiptBloc>(),
               child: PurchaseReceiptListView(project: project.name),
-            ),
-            BlocProvider(
-              create: (context) => sl<MaterialRequestBloc>(),
-              child: MaterialRequestListView(project: project.name),
             ),
             BlocProvider(
               create: (context) => sl<StockEntryBloc>(),

@@ -20,6 +20,7 @@ class ProjectsHomePage extends StatefulWidget {
 class _ProjectsHomePageState extends State<ProjectsHomePage> {
   String _searchQuery = '';
   String _sortBy = 'name';
+  bool _isSearching = false;
 
   List<Project> _getFilteredAndSortedProjects(List<Project> projects) {
     var filtered = projects.where((p) {
@@ -84,75 +85,73 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
               slivers: [
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Projects',
-                          style: Theme.of(context).textTheme.headlineLarge,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            decoration: InputDecoration(
-                              hintText: 'Search projects...',
-                              prefixIcon: const Icon(Icons.search),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: AppColors.outlineVariant),
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              filled: true,
-                              fillColor: AppColors.surfaceContainerLowest,
-                            ),
-                            onChanged: (val) {
-                              setState(() {
-                                _searchQuery = val;
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.outlineVariant),
-                            color: AppColors.surfaceContainerLowest,
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _sortBy,
-                              items: const [
-                                DropdownMenuItem(value: 'name', child: Text('Sort by Name')),
-                                DropdownMenuItem(value: 'progress', child: Text('Sort by Progress')),
-                                DropdownMenuItem(value: 'expectedEndDate', child: Text('Sort by End Date')),
-                                DropdownMenuItem(value: 'priority', child: Text('Sort by Priority')),
-                                DropdownMenuItem(value: 'status', child: Text('Sort by Status')),
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      child: _isSearching
+                          ? Row(
+                              key: const ValueKey('searching_header'),
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    autofocus: true,
+                                    decoration: InputDecoration(
+                                      hintText: 'Search projects...',
+                                      prefixIcon: const Icon(Icons.search, size: 20),
+                                      suffixIcon: IconButton(
+                                        icon: const Icon(Icons.close, size: 20),
+                                        onPressed: () {
+                                          setState(() {
+                                            _isSearching = false;
+                                            _searchQuery = '';
+                                          });
+                                        },
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(color: AppColors.outlineVariant),
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      filled: true,
+                                      fillColor: AppColors.surfaceContainerLowest,
+                                    ),
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _searchQuery = val;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                _buildSortMenu(context),
                               ],
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setState(() {
-                                    _sortBy = val;
-                                  });
-                                }
-                              },
+                            )
+                          : Row(
+                              key: const ValueKey('normal_header'),
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Projects',
+                                  style: Theme.of(context).textTheme.headlineLarge,
+                                ),
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.search, color: AppColors.onSurfaceVariant),
+                                      onPressed: () {
+                                        setState(() {
+                                          _isSearching = true;
+                                        });
+                                      },
+                                    ),
+                                    _buildSortMenu(context),
+                                  ],
+                                ),
+                              ],
                             ),
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                 ),
@@ -198,6 +197,25 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
         },
       ),
       bottomNavigationBar: _buildBottomNavBar(context),
+    );
+  }
+
+  Widget _buildSortMenu(BuildContext context) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.sort, color: AppColors.onSurfaceVariant),
+      tooltip: 'Sort projects',
+      onSelected: (val) {
+        setState(() {
+          _sortBy = val;
+        });
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(value: 'name', child: Text('Sort by Name')),
+        PopupMenuItem(value: 'progress', child: Text('Sort by Progress')),
+        PopupMenuItem(value: 'expectedEndDate', child: Text('Sort by End Date')),
+        PopupMenuItem(value: 'priority', child: Text('Sort by Priority')),
+        PopupMenuItem(value: 'status', child: Text('Sort by Status')),
+      ],
     );
   }
 
