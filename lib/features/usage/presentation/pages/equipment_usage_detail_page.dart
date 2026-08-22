@@ -1,15 +1,17 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_sizes.dart';
-import '../../../../core/widgets/custom_app_bar.dart';
 import '../bloc/equipment_usage_bloc.dart';
 import '../bloc/equipment_usage_event.dart';
 import '../bloc/equipment_usage_state.dart';
 import '../../domain/entities/equipment_usage.dart';
+import '../../domain/entities/equipment_usage_item.dart';
 import 'equipment_usage_form_page.dart';
 
 class EquipmentUsageDetailPage extends StatelessWidget {
@@ -22,62 +24,142 @@ class EquipmentUsageDetailPage extends StatelessWidget {
     return BlocProvider(
       create: (context) =>
           sl<EquipmentUsageBloc>()..add(LoadEquipmentUsageDetails(usageName)),
-      child: Scaffold(
+      child: BlocListener<EquipmentUsageBloc, EquipmentUsageState>(
+        listenWhen: (prev, curr) => prev.pdfStatus != curr.pdfStatus,
+        listener: (context, state) async {
+          if (state.pdfStatus == EquipmentUsagePdfStatus.downloading) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => const Center(
+                child: Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Downloading PDF...'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          } else if (state.pdfStatus == EquipmentUsagePdfStatus.success &&
+              state.pdfBytes != null) {
+            if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+            final tempDir = await getTemporaryDirectory();
+            final sanitized =
+                (state.pdfEntryName ?? 'usage').replaceAll(RegExp(r'[/\\]'), '_');
+            final file = File('${tempDir.path}/$sanitized.pdf');
+            await file.writeAsBytes(state.pdfBytes!);
+            await SharePlus.instance.share(
+              ShareParams(
+                files: [XFile(file.path)],
+                subject: 'Equipment Usage ${state.pdfEntryName ?? ''}',
+              ),
+            );
+          } else if (state.pdfStatus == EquipmentUsagePdfStatus.failure) {
+            if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Failed to download PDF: ${state.pdfError}'),
+              backgroundColor: AppColors.error,
+            ));
+          }
+        },
+        child: Scaffold(
         backgroundColor: AppColors.background,
-        appBar: CustomAppBar(
-          title: 'Equipment: $usageName',
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black87),
+            onPressed: () => Navigator.pop(context),
+          ),
+          centerTitle: false,
+          title: BlocBuilder<EquipmentUsageBloc, EquipmentUsageState>(
+            builder: (context, state) {
+              final usage = state.selectedUsage;
+              if (usage == null) return const SizedBox.shrink();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    usage.name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    usage.project,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
           actions: [
             BlocBuilder<EquipmentUsageBloc, EquipmentUsageState>(
               builder: (context, state) {
                 final usage = state.selectedUsage;
                 if (usage == null) return const SizedBox.shrink();
                 final docstatus = usage.rawData['docstatus'];
-                final isSubmitted = docstatus == 1 || docstatus == '1' || docstatus == 1.0;
+                final isSubmitted =
+                    docstatus == 1 || docstatus == '1' || docstatus == 1.0;
 
-                if (isSubmitted) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Center(
-                      child: Text(
-                        'Submitted',
-                        style: TextStyle(
-                          color: AppColors.success,
-                          fontWeight: FontWeight.bold,
+                if (!isSubmitted) {
+                  return IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.black87),
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              EquipmentUsageFormPage(usageName: usageName),
                         ),
-                      ),
-                    ),
+                      );
+                      if (result == true && context.mounted) {
+                        context.read<EquipmentUsageBloc>().add(
+                          LoadEquipmentUsageDetails(usageName),
+                        );
+                      }
+                    },
                   );
                 }
-
-                return IconButton(
-                  icon: const Icon(Icons.edit, color: AppColors.primary),
-                  onPressed: () async {
-                    final result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => EquipmentUsageFormPage(
-                          usageName: usageName,
-                        ),
-                      ),
-                    );
-                    if (result == true && context.mounted) {
-                      context.read<EquipmentUsageBloc>().add(
-                        LoadEquipmentUsageDetails(usageName),
-                      );
-                    }
-                  },
-                );
+                return const SizedBox.shrink();
               },
             ),
+            IconButton(
+              icon: const Icon(Icons.print, color: Colors.black87),
+              onPressed: () {
+                final usage = context
+                    .read<EquipmentUsageBloc>()
+                    .state
+                    .selectedUsage;
+                if (usage != null) {
+                  _downloadPDF(context, usage);
+                }
+              },
+            ),
+            SizedBox(width: sizeContextOf(context, 8)),
           ],
         ),
         body: BlocBuilder<EquipmentUsageBloc, EquipmentUsageState>(
           builder: (context, state) {
-            if (state.detailStatus == EquipmentUsageStatus.loading) {
+            if (state.status == EquipmentUsageStatus.loading) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            if (state.detailStatus == EquipmentUsageStatus.failure) {
+            if (state.status == EquipmentUsageStatus.failure) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -106,278 +188,886 @@ class EquipmentUsageDetailPage extends StatelessWidget {
               return const Center(child: Text('No details found'));
             }
 
-            return FutureBuilder<DocTypeMeta>(
-              future: sl<FrappeSDK>().meta.getMeta('Equipment Usage'),
-              builder: (context, metaSnapshot) {
-                final meta = metaSnapshot.data;
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.all(AppSizes.s16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _SectionHeader(
-                        title: 'General Information',
-                        icon: Icons.info_outline,
-                      ),
-                      _buildGeneralInfoCard(usage, meta),
-                      const SizedBox(height: AppSizes.s24),
-                      const _SectionHeader(
-                        title: 'Equipment Usage Details',
-                        icon: Icons.construction,
-                      ),
-                      _buildItemsCard(context, usage),
-                      const SizedBox(height: AppSizes.s32),
-                    ],
-                  ),
-                );
-              },
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSizes.s16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildGeneralInfoCard(context, usage),
+                  const SizedBox(height: AppSizes.s16),
+                  _buildItemsSummaryCard(context, usage),
+                  const SizedBox(height: AppSizes.s24),
+                  _buildItemsSection(context, usage),
+                  const SizedBox(height: AppSizes.s16),
+                  _buildValueSummaryCard(context, usage),
+                  const SizedBox(height: AppSizes.s24),
+                  _buildBottomActionButtons(context, usage),
+                  const SizedBox(height: AppSizes.s16),
+                ],
+              ),
             );
           },
         ),
       ),
+      ),
     );
   }
 
-  Widget _buildGeneralInfoCard(EquipmentUsage usage, DocTypeMeta? meta) {
+  Widget _buildGeneralInfoCard(BuildContext context, EquipmentUsage usage) {
     final List<Widget> children = [];
 
-    // Always show Status first
-    children.add(_buildInfoRow('Status', usage.status, isStatus: true));
-    children.add(const Divider(height: AppSizes.s24));
-
-    if (meta != null) {
-      // Get all fields that are data fields, not child tables, and not hidden, and not amended_from/status/docstatus
-      final fields = meta.fields
-          .where(
-            (f) =>
-                f.fieldname != null &&
-                f.isDataField &&
-                f.fieldtype != 'Table' &&
-                f.fieldtype != 'Table MultiSelect' &&
-                f.fieldname != 'amended_from' &&
-                f.fieldname != 'status' &&
-                f.fieldname != 'docstatus',
-          )
-          .toList();
-
-      for (int i = 0; i < fields.length; i++) {
-        final field = fields[i];
-        final val = usage.rawData[field.fieldname];
-        if (val != null && val.toString().isNotEmpty) {
-          String displayVal = val.toString();
-          if (field.fieldtype == 'Date' || field.fieldtype == 'Date Time') {
-            final parsedDate = DateTime.tryParse(displayVal);
-            if (parsedDate != null) {
-              displayVal = DateFormat('MMM dd, yyyy').format(parsedDate);
-            }
-          }
-          children.add(_buildInfoRow(field.displayLabel, displayVal));
-          if (i < fields.length - 1) {
-            children.add(const Divider(height: AppSizes.s16));
-          }
-        }
-      }
-    } else {
-      // Fallback if metadata is not loaded yet
-      children.add(
-        _buildInfoRow(
-          'Site Date',
-          usage.siteDate != null
-              ? DateFormat('MMM dd, yyyy').format(usage.siteDate!)
-              : '-',
-        ),
-      );
-      children.add(const Divider(height: AppSizes.s16));
-      children.add(_buildInfoRow('Project', usage.project));
-      if (usage.rawData['company'] != null) {
-        children.add(const Divider(height: AppSizes.s16));
-        children.add(
-          _buildInfoRow('Company', usage.rawData['company'].toString()),
-        );
-      }
-      if (usage.rawData['remarks'] != null &&
-          usage.rawData['remarks'].toString().isNotEmpty) {
-        children.add(const Divider(height: AppSizes.s16));
-        children.add(
-          _buildInfoRow('Remarks', usage.rawData['remarks'].toString()),
-        );
-      }
-    }
-
-    return Card(
-      elevation: 0,
-      color: AppColors.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppSizes.r12),
-        side: const BorderSide(color: AppColors.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSizes.s16),
-        child: Column(children: children),
-      ),
-    );
-  }
-
-  Widget _buildItemsCard(BuildContext context, EquipmentUsage usage) {
-    return Card(
-      elevation: 0,
-      color: AppColors.surfaceContainerLowest,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppSizes.r12),
-        side: const BorderSide(color: AppColors.outlineVariant),
-      ),
-      child: Column(
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(
-                AppColors.surfaceContainer,
-              ),
-              horizontalMargin: AppSizes.s16,
-              columnSpacing: AppSizes.s24,
-              columns: const [
-                DataColumn(label: Text('Task')),
-                DataColumn(label: Text('Subtask')),
-                DataColumn(label: Text('Qty'), numeric: true),
-                DataColumn(label: Text('UOM')),
-                DataColumn(label: Text('Rate'), numeric: true),
-                DataColumn(label: Text('Amount'), numeric: true),
-                DataColumn(label: Text('Equipment Item')),
-                DataColumn(label: Text('Contractor')),
-              ],
-              rows: usage.equipmentUsageDetails.map<DataRow>((item) {
-                return DataRow(
-                  cells: [
-                    DataCell(Text(item.task)),
-                    DataCell(Text(item.subtask)),
-                    DataCell(Text(item.quantity.toString())),
-                    DataCell(Text(item.uom)),
-                    DataCell(
-                      Text(
-                        NumberFormat.currency(
-                          symbol: '₹',
-                          decimalDigits: 0,
-                        ).format(item.rate),
-                      ),
-                    ),
-                    DataCell(
-                      Text(
-                        NumberFormat.currency(
-                          symbol: '₹',
-                          decimalDigits: 0,
-                        ).format(item.amount),
-                      ),
-                    ),
-                    DataCell(Text(item.equipmentItem)),
-                    DataCell(Text(item.contractor)),
-                  ],
-                );
-              }).toList(),
-            ),
-          ),
-          if (usage.equipmentUsageDetails.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(AppSizes.s16),
-              child: Text('No items found'),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(
-    String label,
-    String value, {
-    bool isStatus = false,
-    bool isBold = false,
-  }) {
-    Widget valueWidget;
-    if (isStatus) {
-      Color statusColor;
-      switch (value.toLowerCase()) {
-        case 'submitted':
-          statusColor = AppColors.success;
-          break;
-        case 'draft':
-          statusColor = AppColors.warning;
-          break;
-        case 'cancelled':
-          statusColor = AppColors.error;
-          break;
-        default:
-          statusColor = AppColors.primary;
-      }
-      valueWidget = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: statusColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: statusColor.withOpacity(0.5)),
-        ),
-        child: Text(
-          value,
-          style: TextStyle(
-            color: statusColor,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      );
-    } else {
-      valueWidget = Text(
-        value,
-        textAlign: TextAlign.right,
-        style: TextStyle(
-          fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-          fontSize: isBold ? 16 : 14,
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSizes.s8),
-      child: Row(
+    children.add(
+      Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.w500,
-              color: AppColors.onSurfaceVariant,
+          Expanded(
+            child: Text(
+              usage.name,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: AppSizes.s16),
-          Flexible(child: valueWidget),
+          SizedBox(width: sizeContextOf(context, 8)),
+          _buildStatusBadge(context, usage.status),
         ],
       ),
     );
+    children.add(SizedBox(height: sizeContextOf(context, 16)));
+    children.add(const Divider(color: Color(0xFFEEEEEE), height: 1));
+    children.add(SizedBox(height: sizeContextOf(context, 20)));
+
+    final List<Widget> detailFields = [];
+    final siteDateStr = usage.siteDate != null
+        ? DateFormat('dd MMM yyyy').format(usage.siteDate!)
+        : '-';
+    detailFields.addAll([
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Site Date',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: sizeContextOf(context, 6)),
+          Text(
+            siteDateStr,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Project',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: sizeContextOf(context, 6)),
+          Text(
+            usage.project,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    ]);
+    if (usage.rawData['company'] != null) {
+      detailFields.add(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Company',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: sizeContextOf(context, 6)),
+            Text(
+              usage.rawData['company'].toString(),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (usage.rawData['shift'] != null) {
+      detailFields.add(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Shift',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: sizeContextOf(context, 6)),
+            Text(
+              usage.rawData['shift'].toString(),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Grid of fields in 2 columns
+    final List<Widget> gridRows = [];
+    for (int i = 0; i < detailFields.length; i += 2) {
+      gridRows.add(
+        Row(
+          children: [
+            Expanded(child: detailFields[i]),
+            if (i + 1 < detailFields.length)
+              Expanded(child: detailFields[i + 1])
+            else
+              const Expanded(child: SizedBox.shrink()),
+          ],
+        ),
+      );
+      if (i + 2 < detailFields.length) {
+        gridRows.add(SizedBox(height: sizeContextOf(context, 20)));
+      }
+    }
+
+    children.addAll(gridRows);
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: EdgeInsets.all(sizeContextOf(context, 24.0)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemsSummaryCard(BuildContext context, EquipmentUsage usage) {
+    final totalQty = usage.equipmentUsageDetails.fold(
+      0.0,
+      (sum, item) => sum + item.quantity,
+    );
+    final totalHours = usage.equipmentUsageDetails.fold(
+      0.0,
+      (sum, item) => sum + (item.workingHrs ?? 0.0),
+    );
+    final totalDiesel = usage.equipmentUsageDetails.fold(
+      0.0,
+      (sum, item) => sum + (item.dieselFilledInLtr ?? 0.0),
+    );
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 20.0), vertical: sizeContextOf(context, 16.0)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Equipment Summary',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            SizedBox(height: sizeContextOf(context, 12)),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Total Working Hours',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: sizeContextOf(context, 4)),
+                      Text(
+                        '${totalHours.toStringAsFixed(1)} Hrs',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Total Diesel Filled',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: sizeContextOf(context, 4)),
+                      Text(
+                        '${totalDiesel.toStringAsFixed(1)} Ltr',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: sizeContextOf(context, 12)),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Total Output Qty',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: sizeContextOf(context, 4)),
+                      Text(
+                        '${totalQty.toStringAsFixed(0)} Units',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemsSection(BuildContext context, EquipmentUsage usage) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Equipment Log',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 10), vertical: sizeContextOf(context, 4)),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${usage.equipmentUsageDetails.length} Logs',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black54,
+                ),
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: sizeContextOf(context, 12)),
+        ...List.generate(usage.equipmentUsageDetails.length, (index) {
+          final item = usage.equipmentUsageDetails[index];
+          return _ItemCard(item: item);
+        }),
+      ],
+    );
+  }
+
+  Widget _buildValueSummaryCard(BuildContext context, EquipmentUsage usage) {
+    final grandTotal = usage.equipmentUsageDetails.fold(
+      0.0,
+      (sum, item) => sum + item.amount,
+    );
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.divider,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(sizeContextOf(context, 24.0)),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Grand Total Amount',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            Text(
+              NumberFormat.currency(
+                symbol: '₹ ',
+                decimalDigits: 2,
+              ).format(grandTotal),
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomActionButtons(BuildContext context, EquipmentUsage usage) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: sizeContextOf(context, 8.0)),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () => _downloadPDF(context, usage),
+              icon: const Icon(
+                Icons.file_download_outlined,
+                color: Colors.black87,
+                size: 18,
+              ),
+              label: const Text(
+                'Download PDF',
+                style: TextStyle(
+                  color: Colors.black87,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white,
+                side: BorderSide(color: Colors.grey.shade300),
+                padding: EdgeInsets.symmetric(vertical: sizeContextOf(context, 16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(BuildContext context, String status) {
+    Color bgColor;
+    Color textColor;
+    IconData? icon;
+
+    switch (status.toLowerCase()) {
+      case 'submitted':
+        bgColor = const Color(0xFFA7D5B0);
+        textColor = Colors.white;
+        icon = Icons.check_circle_outline;
+        break;
+      case 'draft':
+        bgColor = Colors.grey.shade200;
+        textColor = Colors.grey.shade700;
+        break;
+      case 'cancelled':
+        bgColor = AppColors.error.withValues(alpha: 0.1);
+        textColor = AppColors.error;
+        break;
+      default:
+        bgColor = Colors.blue.withValues(alpha: 0.1);
+        textColor = Colors.blue;
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 10), vertical: sizeContextOf(context, 4)),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: textColor),
+            SizedBox(width: sizeContextOf(context, 4)),
+          ],
+          Text(
+            status,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _downloadPDF(BuildContext context, EquipmentUsage usage) {
+    context.read<EquipmentUsageBloc>().add(DownloadEquipmentUsagePdfEvent(usage.name));
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final IconData icon;
+class _ItemCard extends StatefulWidget {
+  final EquipmentUsageItem item;
 
-  const _SectionHeader({required this.title, required this.icon});
+  const _ItemCard({required this.item});
+
+  @override
+  State<_ItemCard> createState() => _ItemCardState();
+}
+
+class _ItemCardState extends State<_ItemCard> {
+  bool _isExpanded = false;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSizes.s12, left: AppSizes.s4),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: AppColors.primary),
-          const SizedBox(width: AppSizes.s8),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppColors.primary,
-            ),
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _isExpanded = !_isExpanded;
+        });
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        margin: EdgeInsets.only(bottom: sizeContextOf(context, 12)),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _isExpanded ? const Color(0xFFE1F2E9) : Colors.transparent,
+            width: 1,
           ),
-        ],
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 16.0), vertical: sizeContextOf(context, 12.0)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.item.task,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        SizedBox(height: sizeContextOf(context, 2)),
+                        Text(
+                          widget.item.subtask,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: sizeContextOf(context, 8),
+                          vertical: sizeContextOf(context, 2),
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F3EE),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          widget.item.equipmentItem.isNotEmpty
+                              ? widget.item.equipmentItem
+                              : 'Equipment',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF6B5E52),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: sizeContextOf(context, 8)),
+                      Icon(
+                        _isExpanded
+                            ? Icons.keyboard_arrow_up
+                            : Icons.keyboard_arrow_down,
+                        color: Colors.grey,
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              if (!_isExpanded) ...[
+                SizedBox(height: sizeContextOf(context, 6)),
+                Text(
+                  'Working Hours: ${widget.item.workingHrs?.toStringAsFixed(1) ?? '0'} Hrs • Qty: ${widget.item.quantity.toStringAsFixed(0)} ${widget.item.uom}',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                child: _isExpanded
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(height: sizeContextOf(context, 10)),
+                          const Divider(color: Color(0xFFEEEEEE), height: 1),
+                          SizedBox(height: sizeContextOf(context, 10)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Opening Reading',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      widget.item.openingReading?.toString() ??
+                                          '-',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Closing Reading',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      widget.item.closingReading?.toString() ??
+                                          '-',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: sizeContextOf(context, 10)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Working Hours',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      widget.item.workingHrs?.toStringAsFixed(
+                                            1,
+                                          ) ??
+                                          '-',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Diesel filled (Ltr)',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      widget.item.dieselFilledInLtr
+                                              ?.toStringAsFixed(1) ??
+                                          '-',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: sizeContextOf(context, 10)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Contractor',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      widget.item.contractor.isNotEmpty
+                                          ? widget.item.contractor
+                                          : '-',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Qty',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      '${widget.item.quantity.toStringAsFixed(0)} ${widget.item.uom}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: sizeContextOf(context, 10)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Rate',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      NumberFormat.currency(
+                                        symbol: '₹ ',
+                                        decimalDigits: 2,
+                                      ).format(widget.item.rate),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Amount',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Text(
+                                      NumberFormat.currency(
+                                        symbol: '₹ ',
+                                        decimalDigits: 2,
+                                      ).format(widget.item.amount),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF5A8B6C),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: sizeContextOf(context, 10)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      widget.item.billed == true
+                                          ? Icons.check_circle
+                                          : Icons.radio_button_unchecked,
+                                      color: widget.item.billed == true
+                                          ? AppColors.success
+                                          : Colors.grey,
+                                      size: 16,
+                                    ),
+                                    SizedBox(width: sizeContextOf(context, 4)),
+                                    const Text(
+                                      'Billed',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      widget.item.paid == true
+                                          ? Icons.check_circle
+                                          : Icons.radio_button_unchecked,
+                                      color: widget.item.paid == true
+                                          ? AppColors.success
+                                          : Colors.grey,
+                                      size: 16,
+                                    ),
+                                    SizedBox(width: sizeContextOf(context, 4)),
+                                    const Text(
+                                      'Paid',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

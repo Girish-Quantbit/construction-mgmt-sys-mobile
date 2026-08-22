@@ -4,6 +4,8 @@ import 'purchase_receipt_item.dart';
 class PurchaseReceipt extends Equatable {
   final String name; // Receipt ID
   final String supplier;
+  final String? supplierName;
+  final double? totalQty;
   final DateTime? postingDate;
   final double grandTotal;
   final String status;
@@ -17,6 +19,8 @@ class PurchaseReceipt extends Equatable {
   const PurchaseReceipt({
     required this.name,
     required this.supplier,
+    this.supplierName,
+    this.totalQty,
     this.postingDate,
     required this.grandTotal,
     required this.status,
@@ -32,6 +36,8 @@ class PurchaseReceipt extends Equatable {
   List<Object?> get props => [
     name,
     supplier,
+    supplierName,
+    totalQty,
     postingDate,
     grandTotal,
     status,

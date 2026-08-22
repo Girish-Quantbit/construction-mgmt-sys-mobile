@@ -1,13 +1,19 @@
+import 'package:cms/core/theme/app_sizes.dart';
+import 'package:cms/core/widgets/link_search_bottom_sheet.dart';
+import 'package:cms/core/widgets/error_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import 'package:cms/core/di/injection_container.dart';
 import 'package:cms/core/theme/app_colors.dart';
 import 'package:cms/core/services/project_selection_service.dart';
+import 'package:cms/core/services/homepage_reload_notifier.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
-import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../bloc/site_diary_form_bloc.dart';
+import '../bloc/site_diary_form_event.dart';
+import '../bloc/site_diary_form_state.dart';
 
 class SiteDiaryFormPage extends StatefulWidget {
   final String? diaryName;
@@ -19,13 +25,13 @@ class SiteDiaryFormPage extends StatefulWidget {
 }
 
 class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
-  bool _isLoading = true;
-  bool _isProcessing = false;
-  String? _error;
-  DocTypeMeta? _meta;
-  Document? _document;
+  late final SiteDiaryFormBloc _bloc;
 
-  // State fields
+  // Getters pointing to BLoC state to preserve local variable syntax in rendering methods
+  DocTypeMeta? get _meta => _bloc.state.meta;
+  Document? get _document => _bloc.state.document;
+
+  // State fields for inputs
   DateTime? _siteDate;
   final _siteDateController = TextEditingController();
   final _dayNoController = TextEditingController();
@@ -52,8 +58,14 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   @override
   void initState() {
     super.initState();
+    _bloc = sl<SiteDiaryFormBloc>()
+      ..add(
+        InitializeFormEvent(
+          diaryName: widget.diaryName,
+          project: widget.project,
+        ),
+      );
     _pageController = PageController(initialPage: _selectedLogTab);
-    _fetchMeta();
   }
 
   @override
@@ -67,6 +79,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     _windSpeedController.dispose();
     _remarksController.dispose();
     _pageController.dispose();
+    _bloc.close();
     super.dispose();
   }
 
@@ -75,11 +88,13 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     setState(() {
       _selectedLogTab = index;
     });
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
-    );
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   String _getTabLabel(int index) {
@@ -163,7 +178,10 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+        padding: EdgeInsets.symmetric(
+          horizontal: sizeContextOf(context, 8.0),
+          vertical: sizeContextOf(context, 8.0),
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -175,7 +193,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                     ),
                     onPressed: () => _onTabChanged(_selectedLogTab - 1),
                   )
-                : const SizedBox(width: 48),
+                : SizedBox(width: sizeContextOf(context, 48)),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -183,7 +201,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                   _getTabIcon(_selectedLogTab),
                   color: const Color(0xFF5A8B6C),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: sizeContextOf(context, 10)),
                 Text(
                   _getTabLabel(_selectedLogTab),
                   style: const TextStyle(
@@ -192,11 +210,11 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                     color: Colors.black87,
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: sizeContextOf(context, 8)),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: sizeContextOf(context, 8),
+                    vertical: sizeContextOf(context, 2),
                   ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFE1F2E9),
@@ -221,117 +239,11 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                     ),
                     onPressed: () => _onTabChanged(_selectedLogTab + 1),
                   )
-                : const SizedBox(width: 48),
+                : SizedBox(width: sizeContextOf(context, 48)),
           ],
         ),
       ),
     );
-  }
-
-  Future<void> _fetchMeta() async {
-    try {
-      final sdk = sl<FrappeSDK>();
-      final meta = await sdk.meta.getMeta('Site Diary', forceRefresh: true);
-
-      final allowedFields = [
-        'site_date',
-        'day_no_of_contract',
-        'shift',
-        'site_engineer',
-        'site_engineer_name',
-        'weather_am',
-        'weather_pm',
-        'max_temp',
-        'min_temp',
-        'wind_speed_kmh',
-        'general_remarks',
-        'site_photos',
-        'status',
-        'work_stopped',
-        'get_site_diary_details',
-        'task',
-        'activity_progress',
-        'material_received',
-        'material_deliveries',
-        'manpower_log',
-        'equipment_log',
-        'visitors',
-      ];
-
-      meta.fields.retainWhere((f) => allowedFields.contains(f.fieldname));
-      meta.fields.sort((a, b) {
-        final indexA = allowedFields.indexOf(a.fieldname ?? '');
-        final indexB = allowedFields.indexOf(b.fieldname ?? '');
-        return indexA.compareTo(indexB);
-      });
-
-      Document? doc;
-      if (widget.diaryName != null) {
-        try {
-          final serverData = await sdk.api.doctype.getByName(
-            'Site Diary',
-            widget.diaryName!,
-          );
-          doc = await sdk.repository.saveServerDocument(
-            doctype: 'Site Diary',
-            serverId: widget.diaryName!,
-            data: serverData,
-          );
-        } catch (_) {
-          doc = await sdk.repository.getDocumentByServerId(
-            widget.diaryName!,
-            'Site Diary',
-          );
-        }
-      } else {
-        final activeProject =
-            widget.project ?? sl<ProjectSelectionService>().selectedProject;
-        doc = await sdk.repository.createDocument(
-          doctype: 'Site Diary',
-          data: {'project': activeProject},
-        );
-      }
-
-      // Initialize form variables
-      final data = doc!.data;
-      if (data['site_date'] != null) {
-        _siteDate = DateTime.tryParse(data['site_date'].toString());
-      } else {
-        _siteDate = DateTime.now();
-      }
-      if (_siteDate != null) {
-        _siteDateController.text = DateFormat('yyyy-MM-dd').format(_siteDate!);
-      }
-      _dayNoController.text = data['day_no_of_contract']?.toString() ?? '';
-      _shift = data['shift']?.toString() ?? 'Day';
-      _siteEngineer = data['site_engineer']?.toString();
-      _siteEngineerNameController.text =
-          data['site_engineer_name']?.toString() ?? '';
-      _siteEngineerDisplayController.text =
-          _siteEngineerNameController.text.isNotEmpty
-          ? _siteEngineerNameController.text
-          : (_siteEngineer ?? '');
-      _weatherAm = data['weather_am']?.toString() ?? 'Clear';
-      _weatherPm = data['weather_pm']?.toString() ?? 'Clear';
-      _maxTempController.text = data['max_temp']?.toString() ?? '';
-      _minTempController.text = data['min_temp']?.toString() ?? '';
-      _windSpeedController.text = data['wind_speed_kmh']?.toString() ?? '';
-      _remarksController.text = data['general_remarks']?.toString() ?? '';
-      _workStopped = data['work_stopped'] == 1 || data['work_stopped'] == true;
-      _status = data['status']?.toString() ?? 'Draft';
-      _existingSitePhotoUrl = data['site_photos']?.toString();
-
-      setState(() {
-        _meta = meta;
-        _document = doc;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
   }
 
   List<String> getSelectOptions(String fieldname) {
@@ -346,7 +258,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     return [];
   }
 
-  Future<void> _onGetDetails() async {
+  void _onGetDetails() {
     final project =
         widget.project ?? sl<ProjectSelectionService>().selectedProject;
     final dateStr = _siteDate != null
@@ -362,185 +274,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       return;
     }
 
-    setState(() {
-      _isProcessing = true;
-    });
-
-    try {
-      final sdk = sl<FrappeSDK>();
-
-      final responses = await Future.wait([
-        sdk.api.call(
-          'quantbit_construction_management.site_diary.doctype.site_diary.site_diary.get_site_diary_details',
-          args: {'project': project, 'site_date': dateStr},
-        ),
-        sdk.api
-            .call(
-              'quantbit_construction_management.site_diary.doctype.site_diary.site_diary.get_latest_task_progress',
-              args: {'project': project, 'site_date': dateStr},
-            )
-            .catchError((_) => null),
-        sdk.api
-            .call(
-              'quantbit_construction_management.site_diary.doctype.site_diary.site_diary.get_material_deliveries',
-              args: {'project': project, 'site_date': dateStr},
-            )
-            .catchError((_) => null),
-        sdk.api
-            .call(
-              'quantbit_construction_management.site_diary.doctype.site_diary.site_diary.get_material_received',
-              args: {'project': project, 'site_date': dateStr},
-            )
-            .catchError((_) => null),
-      ]);
-
-      final mainResponse = responses[0];
-      final taskProgressResponse = responses[1];
-      final materialDeliveriesResponse = responses[2];
-      final materialReceivedResponse = responses[3];
-
-      if (mainResponse != null && mainResponse is Map<String, dynamic>) {
-        final updatedData = Map<String, dynamic>.from(_document?.data ?? {});
-        updatedData['site_date'] = dateStr;
-        updatedData['project'] = project;
-
-        final childTables = [
-          'task',
-          'activity_progress',
-          'material_received',
-          'material_deliveries',
-          'manpower_log',
-          'equipment_log',
-          'visitors',
-        ];
-
-        final data = mainResponse.containsKey('message')
-            ? mainResponse['message']
-            : mainResponse;
-
-        for (final table in childTables) {
-          if (data is Map && data.containsKey(table)) {
-            updatedData[table] = data[table];
-          }
-        }
-
-        dynamic extractData(dynamic response) {
-          if (response is Map<String, dynamic>) {
-            return response.containsKey('message')
-                ? response['message']
-                : response;
-          }
-          return response;
-        }
-
-        final rawProgressData = extractData(taskProgressResponse);
-        final List<Map<String, dynamic>> taskProgressData = [];
-        if (rawProgressData is List) {
-          for (final item in rawProgressData) {
-            if (item is Map) {
-              final mapItem = Map<String, dynamic>.from(item);
-              final docNameVal = mapItem['doc_name']?.toString() ?? mapItem['docname']?.toString();
-              if (docNameVal != null && (docNameVal.startsWith('TP') || docNameVal.contains('TP-') || docNameVal.contains('TP -'))) {
-                mapItem['id'] = docNameVal.trim();
-                mapItem['doc_name'] = 'Task Progress';
-              }
-              taskProgressData.add(mapItem);
-            }
-          }
-        }
-
-        if (taskProgressData.isNotEmpty) {
-          updatedData['activity_progress'] = taskProgressData;
-        }
-
-        // Collect unique task IDs and subjects
-        final Map<String, String> taskSubjects = {};
-
-        // 1. Check existing tasks in updatedData['task'] to preserve existing subjects
-        final existingTasks = updatedData['task'];
-        if (existingTasks is List) {
-          for (final item in existingTasks) {
-            if (item is Map) {
-              final taskId = item['task']?.toString();
-              final subject = item['task_subject']?.toString();
-              if (taskId != null && taskId.isNotEmpty) {
-                taskSubjects[taskId] = subject ?? '';
-              }
-            }
-          }
-        }
-
-        // 2. Extract task IDs from taskProgressData
-        for (final item in taskProgressData) {
-          final taskId =
-              item['task']?.toString() ?? item['task_id']?.toString();
-          if (taskId != null && taskId.isNotEmpty) {
-            if (!taskSubjects.containsKey(taskId)) {
-              taskSubjects[taskId] = '';
-            }
-          }
-        }
-
-        // 3. Fetch subject for any task ID that doesn't have one
-        final List<Map<String, dynamic>> finalTaskList = [];
-        for (final entry in taskSubjects.entries) {
-          final taskId = entry.key;
-          var subject = entry.value;
-
-          if (subject.isEmpty) {
-            try {
-              final response = await sdk.api.call(
-                'frappe.client.get_value',
-                args: {
-                  'doctype': 'Task',
-                  'fieldname': 'subject',
-                  'filters': taskId,
-                },
-              );
-              if (response != null && response is Map<String, dynamic>) {
-                final message = response['message'];
-                if (message is Map) {
-                  subject = message['subject']?.toString() ?? '';
-                } else if (message is String) {
-                  subject = message;
-                }
-              }
-            } catch (e) {
-              debugPrint('Error fetching subject for task $taskId: $e');
-            }
-          }
-          finalTaskList.add({'task': taskId, 'task_subject': subject});
-        }
-
-        updatedData['task'] = finalTaskList;
-
-        final materialDeliveriesData = extractData(materialDeliveriesResponse);
-        if (materialDeliveriesData != null) {
-          updatedData['material_deliveries'] = materialDeliveriesData;
-        }
-
-        final materialReceivedData = extractData(materialReceivedResponse);
-        if (materialReceivedData != null) {
-          updatedData['material_received'] = materialReceivedData;
-        }
-
-        setState(() {
-          _document = _document?.copyWith(data: updatedData);
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Details fetched successfully')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error fetching details: $e')));
-    } finally {
-      setState(() {
-        _isProcessing = false;
-      });
-    }
+    _bloc.add(GetDetailsEvent(project: project, dateStr: dateStr));
   }
 
   Future<void> _selectDate() async {
@@ -558,7 +292,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     }
   }
 
-  Future<void> _saveDocument() async {
+  void _saveDocument() {
     if (_siteDate == null) {
       ScaffoldMessenger.of(
         context,
@@ -566,17 +300,35 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       return;
     }
 
-    setState(() {
-      _isProcessing = true;
-    });
-
-    final sdk = sl<FrappeSDK>();
-    final dateStr = DateFormat('yyyy-MM-dd').format(_siteDate!);
-
-    String? photoUrl = _existingSitePhotoUrl;
-    if (_pickedSitePhoto != null && widget.diaryName != null) {
-      photoUrl = await _uploadSitePhoto(widget.diaryName!);
+    if (_shift == null || _shift!.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select Shift')));
+      return;
     }
+
+    if (_siteEngineer == null || _siteEngineer!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select Site Engineer')),
+      );
+      return;
+    }
+
+    if (_weatherAm == null || _weatherAm!.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select Weather AM')));
+      return;
+    }
+
+    if (_weatherPm == null || _weatherPm!.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select Weather PM')));
+      return;
+    }
+
+    final dateStr = DateFormat('yyyy-MM-dd').format(_siteDate!);
 
     final payload = {
       'project':
@@ -594,7 +346,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       'general_remarks': _remarksController.text,
       'work_stopped': _workStopped ? 1 : 0,
       'status': _status ?? 'Draft',
-      'site_photos': photoUrl,
+      'site_photos': _existingSitePhotoUrl,
       // Include child tables
       'task': _document?.data['task'] ?? [],
       'activity_progress': _document?.data['activity_progress'] ?? [],
@@ -605,64 +357,12 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       'visitors': _document?.data['visitors'] ?? [],
     };
 
-    try {
-      if (widget.diaryName == null) {
-        // Create new doc
-        final result = await sdk.api.document.createDocument(
-          'Site Diary',
-          payload,
-        );
-        final serverName =
-            result['name']?.toString() ?? result['docname']?.toString();
-        if (serverName != null) {
-          if (_pickedSitePhoto != null) {
-            photoUrl = await _uploadSitePhoto(serverName);
-          }
-          final merged = Map<String, dynamic>.from(payload)
-            ..['name'] = serverName;
-          if (photoUrl != null) {
-            merged['site_photos'] = photoUrl;
-          }
-          await sdk.repository.saveServerDocument(
-            doctype: 'Site Diary',
-            serverId: serverName,
-            data: merged,
-          );
-        }
-      } else {
-        // Update existing doc
-        final existingData = Map<String, dynamic>.from(_document!.data)
-          ..addAll(payload);
-        await sdk.api.document.updateDocument(
-          'Site Diary',
-          widget.diaryName!,
-          existingData,
-        );
-        await sdk.repository.updateDocumentData(
-          _document!.localId,
-          existingData,
-        );
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Site Diary saved successfully')),
-        );
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: ${e.toString()}')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-      }
-    }
+    _bloc.add(
+      SaveFormEvent(
+        payload: payload,
+        pickedSitePhotoPath: _pickedSitePhoto?.path,
+      ),
+    );
   }
 
   Future<void> _showLinkSearch(
@@ -676,9 +376,9 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => _LinkSearchBottomSheet(
+      builder: (context) => LinkSearchBottomSheet(
         doctype: doctype,
-        onSelected: (val) {
+        onSelected: (val, _) {
           onSelected(val);
           Navigator.pop(context);
         },
@@ -688,402 +388,433 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: AppColors.background,
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    return BlocProvider.value(
+      value: _bloc,
+      child: BlocConsumer<SiteDiaryFormBloc, SiteDiaryFormState>(
+        listener: (context, state) {
+          if (state.status == SiteDiaryFormStatus.loadSuccess &&
+              state.document != null) {
+            final data = state.document!.data;
+            if (_siteDate == null) {
+              if (data['site_date'] != null) {
+                _siteDate = DateTime.tryParse(data['site_date'].toString());
+              } else {
+                _siteDate = DateTime.now();
+              }
+              if (_siteDate != null) {
+                _siteDateController.text = DateFormat(
+                  'yyyy-MM-dd',
+                ).format(_siteDate!);
+              }
+              _dayNoController.text =
+                  data['day_no_of_contract']?.toString() ?? '';
+              _shift = data['shift']?.toString() ?? 'Day';
+              _siteEngineer = data['site_engineer']?.toString();
+              _siteEngineerNameController.text =
+                  data['site_engineer_name']?.toString() ?? '';
+              _siteEngineerDisplayController.text =
+                  _siteEngineerNameController.text.isNotEmpty
+                  ? _siteEngineerNameController.text
+                  : (_siteEngineer ?? '');
+              _weatherAm = data['weather_am']?.toString() ?? 'Clear';
+              _weatherPm = data['weather_pm']?.toString() ?? 'Clear';
+              _maxTempController.text = data['max_temp']?.toString() ?? '';
+              _minTempController.text = data['min_temp']?.toString() ?? '';
+              _windSpeedController.text =
+                  data['wind_speed_kmh']?.toString() ?? '';
+              _remarksController.text =
+                  data['general_remarks']?.toString() ?? '';
+              _workStopped =
+                  data['work_stopped'] == 1 || data['work_stopped'] == true;
+              _status = data['status']?.toString() ?? 'Draft';
+              _existingSitePhotoUrl = data['site_photos']?.toString();
+            }
+          } else if (state.status == SiteDiaryFormStatus.employeeNameLoaded &&
+              state.employeeName != null) {
+            // Update the display controller with the resolved employee name
+            setState(() {
+              _siteEngineerNameController.text = state.employeeName!;
+              _siteEngineerDisplayController.text = state.employeeName!;
+            });
+          } else if (state.status == SiteDiaryFormStatus.saveSuccess) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Site Diary saved successfully')),
+            );
+            sl<HomepageReloadNotifier>().notifySave();
+            Navigator.pop(context, true);
+          } else if (state.status == SiteDiaryFormStatus.saveFailure) {
+            showErrorDialog(context, 'Save Failed', state.error ?? 'An error occurred');
+          }
+        },
+        builder: (context, state) {
+          if (state.status == SiteDiaryFormStatus.loading ||
+              state.status == SiteDiaryFormStatus.initial) {
+            return const Scaffold(
+              backgroundColor: AppColors.background,
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
 
-    if (_error != null) {
-      return Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(title: const Text('Site Diary')),
-        body: Center(child: Text('Error: $_error')),
-      );
-    }
+          if (state.status == SiteDiaryFormStatus.loadFailure &&
+              state.error != null) {
+            showErrorDialog(context, 'Load Failed', state.error);
+            return Scaffold(
+              backgroundColor: AppColors.background,
+              appBar: AppBar(title: const Text('Site Diary')),
+              body: const Center(child: Text('Failed to load Site Diary')),
+            );
+          }
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black87),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          widget.diaryName != null ? 'Edit Site Diary' : 'New Site Diary',
-          style: const TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-      ),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
+          final isProcessing = state.status == SiteDiaryFormStatus.processing;
+
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            appBar: AppBar(
+              backgroundColor: Colors.white,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.black87),
+                onPressed: () => Navigator.pop(context),
+              ),
+              title: Text(
+                widget.diaryName != null ? 'Edit Site Diary' : 'New Site Diary',
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            body: Stack(
               children: [
-                // 1. General Information Card
-                _buildCard(
-                  title: 'General Information',
-                  icon: Icons.info_outline,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: _buildTextField(
-                            label: 'Site Date',
-                            controller: _siteDateController,
-                            placeholder: 'YYYY-MM-DD',
-                            suffixIcon: const Icon(
-                              Icons.calendar_today_outlined,
-                              size: 16,
-                            ),
-                            onTap: _selectDate,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: _buildTextField(
-                            label: 'Day No. of Contract',
-                            controller: _dayNoController,
-                            placeholder: 'e.g. 10',
-                            keyboardType: const TextInputType.numberWithOptions(
-                              signed: false,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: _buildDropdownField(
-                            label: 'Shift',
-                            value: _shift,
-                            items: getSelectOptions('shift'),
-                            onChanged: (val) {
-                              setState(() {
-                                _shift = val;
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 3,
-                          child: _buildTextField(
-                            label: 'Site Engineer',
-                            controller: _siteEngineerDisplayController,
-                            placeholder: 'Select site engineer',
-                            onTap: () => _showLinkSearch('Employee', (
-                              val,
-                            ) async {
-                              setState(() {
-                                _siteEngineer = val;
-                                _siteEngineerDisplayController.text = val;
-                              });
-                              try {
-                                final sdk = sl<FrappeSDK>();
-                                final empData = await sdk.api.doctype.getByName(
-                                  'Employee',
-                                  val,
-                                );
-                                final name =
-                                    empData['employee_name']?.toString() ?? '';
-                                setState(() {
-                                  _siteEngineerNameController.text = name;
-                                  _siteEngineerDisplayController.text = name;
-                                });
-                              } catch (_) {
-                                setState(() {
-                                  _siteEngineerNameController.text = val;
-                                  _siteEngineerDisplayController.text = val;
-                                });
-                              }
-                            }),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _isProcessing ? null : _onGetDetails,
-                        icon: _isProcessing
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.sync, size: 18),
-                        label: const Text(
-                          'Get Site Diary Details',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryButton,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // 2. Weather Details Card
-                _buildCard(
-                  title: 'Weather Details',
-                  icon: Icons.cloud_outlined,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildDropdownField(
-                            label: 'Weather AM',
-                            value: _weatherAm,
-                            items: getSelectOptions('weather_am'),
-                            onChanged: (val) {
-                              setState(() {
-                                _weatherAm = val;
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildDropdownField(
-                            label: 'Weather PM',
-                            value: _weatherPm,
-                            items: getSelectOptions('weather_pm'),
-                            onChanged: (val) {
-                              setState(() {
-                                _weatherPm = val;
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            label: 'Max Temp (°C)',
-                            controller: _maxTempController,
-                            placeholder: 'e.g. 35',
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildTextField(
-                            label: 'Min Temp (°C)',
-                            controller: _minTempController,
-                            placeholder: 'e.g. 20',
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      label: 'Wind Speed (km/h)',
-                      controller: _windSpeedController,
-                      placeholder: 'e.g. 15',
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Unified Carousel Log Navigator & Headers
-                _buildCarouselNavigator(),
-                const SizedBox(height: 16),
-
-                // Active Log Pages inside PageView for smooth swiping animation
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOut,
-                  height: _calculatePageViewHeight(),
-                  child: PageView(
-                    controller: _pageController,
-                    onPageChanged: (index) {
-                      setState(() {
-                        _selectedLogTab = index;
-                        _expandedItems.clear();
-                        _selectedImageTabs.clear();
-                      });
-                    },
+                SingleChildScrollView(
+                  padding: EdgeInsets.all(sizeContextOf(context, 16)),
+                  child: Column(
                     children: [
-                      _buildTasksPageContent(),
-                      _buildActivityProgressPageContent(),
-                      _buildMaterialReceivedPageContent(),
-                      _buildMaterialDeliveriesPageContent(),
-                      _buildManpowerPageContent(),
-                      _buildEquipmentPageContent(),
-                      _buildVisitorsPageContent(),
-                    ],
-                  ),
-                ),
-                // Remarks & Settings Card
-                _buildCard(
-                  title: 'Remarks',
-                  icon: Icons.settings_suggest_outlined,
-                  children: [
-                    _buildTextField(
-                      label: 'General Remarks',
-                      controller: _remarksController,
-                      placeholder: 'Enter remarks...',
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Row(
+                      // 1. General Information Card
+                      _buildCard(
+                        title: 'General Information',
+                        icon: Icons.info_outline,
+                        children: [
+                          Row(
                             children: [
-                              const Text(
-                                'Work Stopped',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
+                              Expanded(
+                                flex: 3,
+                                child: _buildTextField(
+                                  label: 'Site Date *',
+                                  controller: _siteDateController,
+                                  placeholder: 'YYYY-MM-DD',
+                                  suffixIcon: const Icon(
+                                    Icons.calendar_today_outlined,
+                                    size: 16,
+                                  ),
+                                  onTap: _selectDate,
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Switch(
-                                value: _workStopped,
-                                activeThumbColor: AppColors.primaryButton,
-                                onChanged: (val) {
-                                  setState(() {
-                                    _workStopped = val;
-                                  });
-                                },
+                              SizedBox(width: sizeContextOf(context, 12)),
+                              Expanded(
+                                flex: 2,
+                                child: _buildTextField(
+                                  label: 'Day No. of Contract',
+                                  controller: _dayNoController,
+                                  placeholder: 'e.g. 10',
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        signed: false,
+                                      ),
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        _buildSitePhotosSelector(),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
+                          SizedBox(height: sizeContextOf(context, 16)),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: _buildTextField(
+                                  label: 'Site Engineer *',
+                                  controller: _siteEngineerDisplayController,
+                                  placeholder: 'Select site engineer',
+                                  onTap: () => _showLinkSearch('Employee', (
+                                    val,
+                                  ) {
+                                    setState(() {
+                                      _siteEngineer = val;
+                                      _siteEngineerDisplayController.text = val;
+                                    });
+                                    // Dispatch BLoC event — no SDK call in UI
+                                    _bloc.add(FetchEmployeeNameEvent(val));
+                                  }),
+                                ),
+                              ),
+                              SizedBox(width: sizeContextOf(context, 12)),
+                              Expanded(
+                                flex: 2,
+                                child: _buildDropdownField(
+                                  label: 'Shift *',
+                                  value: _shift,
+                                  items: getSelectOptions('shift'),
+                                  onChanged: (val) {
+                                    setState(() {
+                                      _shift = val;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: sizeContextOf(context, 16)),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: isProcessing ? null : _onGetDetails,
+                              icon: isProcessing
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Color(0xFF5A8B6C),
+                                            ),
+                                      ),
+                                    )
+                                  : const Icon(Icons.sync, size: 18),
+                              label: const Text('Get Details'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFE1F2E9),
+                                foregroundColor: const Color(0xFF5A8B6C),
+                                padding: EdgeInsets.symmetric(
+                                  vertical: sizeContextOf(context, 12),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: sizeContextOf(context, 16)),
 
-                // Bottom Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFCDE0D5)),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                      // 2. Weather Details Card
+                      _buildCard(
+                        title: 'Weather Details',
+                        icon: Icons.cloud_outlined,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildDropdownField(
+                                  label: 'Weather AM *',
+                                  value: _weatherAm,
+                                  items: getSelectOptions('weather_am'),
+                                  onChanged: (val) {
+                                    setState(() {
+                                      _weatherAm = val;
+                                    });
+                                  },
+                                ),
+                              ),
+                              SizedBox(width: sizeContextOf(context, 12)),
+                              Expanded(
+                                child: _buildDropdownField(
+                                  label: 'Weather PM *',
+                                  value: _weatherPm,
+                                  items: getSelectOptions('weather_pm'),
+                                  onChanged: (val) {
+                                    setState(() {
+                                      _weatherPm = val;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(
-                            color: Colors.black87,
-                            fontWeight: FontWeight.bold,
+                          SizedBox(height: sizeContextOf(context, 16)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTextField(
+                                  label: 'Max Temp (°C)',
+                                  controller: _maxTempController,
+                                  placeholder: 'e.g. 35',
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                ),
+                              ),
+                              SizedBox(width: sizeContextOf(context, 12)),
+                              Expanded(
+                                child: _buildTextField(
+                                  label: 'Min Temp (°C)',
+                                  controller: _minTempController,
+                                  placeholder: 'e.g. 25',
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                ),
+                              ),
+                              SizedBox(width: sizeContextOf(context, 12)),
+                              Expanded(
+                                child: _buildTextField(
+                                  label: 'Wind Speed (km/h)',
+                                  controller: _windSpeedController,
+                                  placeholder: 'e.g. 15',
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: sizeContextOf(context, 16)),
+
+                      // 3. Site Logs Card (Carousel Navigator + Child Tables PageView)
+                      _buildCard(
+                        title: 'Site Logs',
+                        icon: Icons.list_alt_outlined,
+                        children: [
+                          _buildCarouselNavigator(),
+                          SizedBox(height: sizeContextOf(context, 12)),
+                          SizedBox(
+                            height: _calculatePageViewHeight(),
+                            child: PageView(
+                              controller: _pageController,
+                              onPageChanged: (index) {
+                                setState(() {
+                                  _selectedLogTab = index;
+                                });
+                              },
+                              children: [
+                                _buildTasksPageContent(),
+                                _buildActivityProgressPageContent(),
+                                _buildMaterialReceivedPageContent(),
+                                _buildMaterialDeliveriesPageContent(),
+                                _buildManpowerPageContent(),
+                                _buildEquipmentPageContent(),
+                                _buildVisitorsPageContent(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: sizeContextOf(context, 16)),
+
+                      // 4. Photos & Remarks Card
+                      _buildCard(
+                        title: 'Photos & Remarks',
+                        icon: Icons.photo_library_outlined,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Site Photo',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 8)),
+                                    _buildSitePhotosSelector(),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(width: sizeContextOf(context, 16)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Work Stopped',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                    SizedBox(height: sizeContextOf(context, 2)),
+                                    Row(
+                                      children: [
+                                        Checkbox(
+                                          value: _workStopped,
+                                          activeColor: const Color(0xFF5A8B6C),
+                                          onChanged: (val) {
+                                            setState(() {
+                                              _workStopped = val ?? false;
+                                            });
+                                          },
+                                        ),
+                                        const Text(
+                                          'Stopped',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: sizeContextOf(context, 16)),
+                          _buildTextField(
+                            label: 'General Remarks',
+                            controller: _remarksController,
+                            placeholder: 'Enter general remarks here...',
+                            maxLines: 3,
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: sizeContextOf(context, 24)),
+
+                      // Action Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: isProcessing ? null : _saveDocument,
+                          icon: const Icon(
+                            Icons.check_circle_outline,
+                            size: 18,
+                          ),
+                          label: const Text('Save Site Diary'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryButton,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(
+                              vertical: sizeContextOf(context, 16),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _saveDocument,
-                        icon: const Icon(Icons.check_circle_outline, size: 18),
-                        label: const Text('Save Site Diary'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryButton,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 24),
               ],
             ),
-          ),
-          if (_isProcessing)
-            Container(
-              color: Colors.black.withValues(alpha: 0.3),
-              child: const Center(child: CircularProgressIndicator()),
-            ),
-        ],
+          );
+        },
       ),
     );
-  }
-
-  Future<String?> _uploadSitePhoto(String serverName) async {
-    final sdk = sl<FrappeSDK>();
-    final String baseUrl = sdk.baseUrl.endsWith('/')
-        ? sdk.baseUrl.substring(0, sdk.baseUrl.length - 1)
-        : sdk.baseUrl;
-    final String uploadUrl = '$baseUrl/api/method/upload_file';
-    try {
-      final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
-      request.headers.addAll(sdk.api.requestHeaders);
-      request.fields['doctype'] = 'Site Diary';
-      request.fields['docname'] = serverName;
-      request.fields['docfield'] = 'site_photos';
-      request.fields['is_private'] = '0';
-      final fileName = _pickedSitePhoto!.path.split('/').last;
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          _pickedSitePhoto!.path,
-          filename: fileName,
-        ),
-      );
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        return responseData['message']?['file_url']?.toString();
-      } else {
-        debugPrint('Failed to upload site photo: ${response.body}');
-      }
-    } catch (uploadError) {
-      debugPrint('Error uploading site photo: $uploadError');
-    }
-    return null;
   }
 
   Future<void> _pickSitePhoto() async {
@@ -1097,7 +828,9 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
               title: const Text('Choose from Gallery'),
               onTap: () async {
                 Navigator.pop(ctx);
-                final file = await _picker.pickImage(source: ImageSource.gallery);
+                final file = await _picker.pickImage(
+                  source: ImageSource.gallery,
+                );
                 if (file != null) {
                   setState(() {
                     _pickedSitePhoto = File(file.path);
@@ -1110,7 +843,9 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
               title: const Text('Take a Photo'),
               onTap: () async {
                 Navigator.pop(ctx);
-                final file = await _picker.pickImage(source: ImageSource.camera);
+                final file = await _picker.pickImage(
+                  source: ImageSource.camera,
+                );
                 if (file != null) {
                   setState(() {
                     _pickedSitePhoto = File(file.path);
@@ -1125,18 +860,15 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   }
 
   Widget _buildSitePhotosSelector() {
-    final sdk = sl<FrappeSDK>();
-    final baseUrl = sdk.baseUrl.endsWith('/')
-        ? sdk.baseUrl.substring(0, sdk.baseUrl.length - 1)
-        : sdk.baseUrl;
+    final baseUrl = _bloc.state.baseUrl ?? '';
 
     final String? currentPhotoUrl = _pickedSitePhoto != null
         ? null
         : (_existingSitePhotoUrl != null
-            ? (_existingSitePhotoUrl!.startsWith('http')
-                ? _existingSitePhotoUrl
-                : '$baseUrl$_existingSitePhotoUrl')
-            : null);
+              ? (_existingSitePhotoUrl!.startsWith('http')
+                    ? _existingSitePhotoUrl
+                    : '$baseUrl$_existingSitePhotoUrl')
+              : null);
 
     final hasPhoto = _pickedSitePhoto != null || currentPhotoUrl != null;
 
@@ -1149,15 +881,13 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
           decoration: BoxDecoration(
             color: const Color(0xFFF7FBF9),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: const Color(0xFFCDE0D5),
-            ),
+            border: Border.all(color: const Color(0xFFCDE0D5)),
           ),
-          child: const Row(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.camera_alt_outlined, color: Colors.grey, size: 18),
-              SizedBox(width: 6),
+              SizedBox(width: sizeContextOf(context, 6)),
               Text(
                 'Add Photo',
                 style: TextStyle(
@@ -1186,8 +916,8 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                         ? Image.file(_pickedSitePhoto!)
                         : Image.network(currentPhotoUrl!),
                     Positioned(
-                      right: 8,
-                      top: 8,
+                      right: sizeContextOf(context, 8),
+                      top: sizeContextOf(context, 8),
                       child: CircleAvatar(
                         backgroundColor: Colors.black54,
                         child: IconButton(
@@ -1215,7 +945,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                     width: 110,
                     height: 60,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       width: 110,
                       height: 60,
                       color: Colors.grey[200],
@@ -1260,14 +990,14 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: EdgeInsets.all(sizeContextOf(context, 16.0)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Icon(icon, size: 18, color: Colors.black54),
-                const SizedBox(width: 8),
+                SizedBox(width: sizeContextOf(context, 8)),
                 Text(
                   title,
                   style: const TextStyle(
@@ -1278,7 +1008,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: sizeContextOf(context, 16)),
             ...children,
           ],
         ),
@@ -1300,15 +1030,36 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: Colors.black54,
-          ),
-        ),
-        const SizedBox(height: 6),
+        label.endsWith('*')
+            ? Text.rich(
+                TextSpan(
+                  text: label.substring(0, label.length - 1),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black54,
+                  ),
+                  children: const [
+                    TextSpan(
+                      text: ' *',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black54,
+                ),
+              ),
+        SizedBox(height: sizeContextOf(context, 6)),
         GestureDetector(
           onTap: onTap,
           child: AbsorbPointer(
@@ -1322,15 +1073,17 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
               decoration: InputDecoration(
                 hintText: placeholder,
                 hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: sizeContextOf(context, 12),
+                  vertical: sizeContextOf(context, 12),
                 ),
                 filled: true,
                 fillColor: readOnly ? const Color(0xFFF5F7F6) : Colors.white,
                 suffixIcon: suffixIcon != null
                     ? Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
+                        padding: EdgeInsets.only(
+                          right: sizeContextOf(context, 8.0),
+                        ),
                         child: suffixIcon,
                       )
                     : null,
@@ -1362,17 +1115,38 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: Colors.black54,
-          ),
-        ),
-        const SizedBox(height: 6),
+        label.endsWith('*')
+            ? Text.rich(
+                TextSpan(
+                  text: label.substring(0, label.length - 1),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black54,
+                  ),
+                  children: const [
+                    TextSpan(
+                      text: ' *',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black54,
+                ),
+              ),
+        SizedBox(height: sizeContextOf(context, 6)),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 12)),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
@@ -1400,71 +1174,6 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     );
   }
 
-  Widget _buildChildTableSection({
-    required String title,
-    required IconData icon,
-    required List<dynamic> items,
-    required Widget Function(Map<String, dynamic> item, int index) itemBuilder,
-  }) {
-    return _buildCard(
-      title: title,
-      icon: icon,
-      children: [
-        if (items.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8.0),
-            child: Text(
-              'No logs found',
-              style: TextStyle(color: Colors.black38, fontSize: 13),
-            ),
-          )
-        else
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final item = Map<String, dynamic>.from(items[index]);
-              return itemBuilder(item, index);
-            },
-          ),
-      ],
-    );
-  }
-
-  Widget _buildTabChip(int index, String label, IconData icon) {
-    final isSelected = _selectedLogTab == index;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: ChoiceChip(
-        label: Text(label),
-        avatar: Icon(
-          icon,
-          size: 16,
-          color: isSelected ? Colors.white : Colors.black87,
-        ),
-        selected: isSelected,
-        selectedColor: AppColors.primaryButton,
-        backgroundColor: Colors.grey[200],
-        labelStyle: TextStyle(
-          color: isSelected ? Colors.white : Colors.black87,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-        onSelected: (selected) {
-          if (selected) {
-            setState(() {
-              _selectedLogTab = index;
-              _expandedItems.clear();
-              _selectedImageTabs.clear();
-            });
-          }
-        },
-      ),
-    );
-  }
-
   Widget _buildExpandedContent(Map<String, dynamic> item, String itemKey) {
     final keys = item.keys.where((k) {
       return k != 'name' &&
@@ -1482,10 +1191,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
 
     if (keys.isEmpty) return const SizedBox.shrink();
 
-    final sdk = sl<FrappeSDK>();
-    final baseUrl = sdk.baseUrl.endsWith('/')
-        ? sdk.baseUrl.substring(0, sdk.baseUrl.length - 1)
-        : sdk.baseUrl;
+    final baseUrl = _bloc.state.baseUrl ?? '';
 
     // Identify image fields
     final imageKeys = keys.where((key) {
@@ -1507,7 +1213,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
     final nonImageKeys = keys.where((key) => !imageKeys.contains(key)).toList();
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8.0),
+      padding: EdgeInsets.only(top: sizeContextOf(context, 8.0)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1527,7 +1233,9 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                 .join(' ');
 
             return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              padding: EdgeInsets.symmetric(
+                vertical: sizeContextOf(context, 4.0),
+              ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1542,7 +1250,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: sizeContextOf(context, 8)),
                   Expanded(
                     child: Text(
                       val.toString(),
@@ -1577,7 +1285,9 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                       .join(' ');
 
                   return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    padding: EdgeInsets.symmetric(
+                      vertical: sizeContextOf(context, 4.0),
+                    ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1592,7 +1302,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: sizeContextOf(context, 8)),
                         Expanded(child: _buildImageWidget(fullUrl)),
                       ],
                     ),
@@ -1614,7 +1324,9 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                       : '$baseUrl$valStr';
 
                   return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    padding: EdgeInsets.symmetric(
+                      vertical: sizeContextOf(context, 4.0),
+                    ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1629,13 +1341,13 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: sizeContextOf(context, 8)),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _buildImageWidget(fullUrl),
-                              const SizedBox(height: 4),
+                              SizedBox(height: sizeContextOf(context, 4)),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -1656,7 +1368,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                                       });
                                     },
                                   ),
-                                  const SizedBox(width: 8),
+                                  SizedBox(width: sizeContextOf(context, 8)),
                                   Text(
                                     "${selectedTab + 1} / ${imageKeys.length}",
                                     style: const TextStyle(
@@ -1665,7 +1377,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                                       color: Colors.black87,
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
+                                  SizedBox(width: sizeContextOf(context, 8)),
                                   IconButton(
                                     icon: const Icon(
                                       Icons.arrow_right,
@@ -1708,8 +1420,8 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
               children: [
                 Image.network(fullUrl),
                 Positioned(
-                  right: 8,
-                  top: 8,
+                  right: sizeContextOf(context, 8),
+                  top: sizeContextOf(context, 8),
                   child: CircleAvatar(
                     backgroundColor: Colors.black54,
                     child: IconButton(
@@ -1756,7 +1468,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: const Color(0xFFCDE0D5)),
         ),
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(sizeContextOf(context, 12)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1774,7 +1486,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                           color: Colors.black87,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: sizeContextOf(context, 4)),
                       Text(
                         subtitle,
                         style: const TextStyle(
@@ -1786,7 +1498,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                   ),
                 ),
                 if (trailing != null) ...[
-                  const SizedBox(width: 8),
+                  SizedBox(width: sizeContextOf(context, 8)),
                   Text(
                     trailing,
                     style: const TextStyle(
@@ -1796,7 +1508,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
                     ),
                   ),
                 ],
-                const SizedBox(width: 8),
+                SizedBox(width: sizeContextOf(context, 8)),
                 Icon(
                   isExpanded
                       ? Icons.keyboard_arrow_up
@@ -1812,6 +1524,10 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
   Widget _buildTasksPageContent() {
     final items = _document?.data['task'] as List? ?? [];
     if (items.isEmpty) {
@@ -1821,7 +1537,8 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) =>
+          SizedBox(height: sizeContextOf(context, 8)),
       itemBuilder: (context, index) {
         final item = Map<String, dynamic>.from(items[index]);
         final taskId = item['task']?.toString() ?? '-';
@@ -1850,17 +1567,23 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   Widget _buildActivityProgressPageContent() {
     final items = _document?.data['activity_progress'] as List? ?? [];
     if (items.isEmpty) {
-      return _buildEmptyState('No Activity Progress recorded', Icons.trending_up_outlined);
+      return _buildEmptyState(
+        'No Activity Progress recorded',
+        Icons.trending_up_outlined,
+      );
     }
     return ListView.separated(
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) =>
+          SizedBox(height: sizeContextOf(context, 8)),
       itemBuilder: (context, index) {
         final item = Map<String, dynamic>.from(items[index]);
-        final taskSubject = item['task_subject']?.toString() ??
-            item['parent_task_subject']?.toString() ?? '-';
+        final taskSubject =
+            item['task_subject']?.toString() ??
+            item['parent_task_subject']?.toString() ??
+            '-';
         final achieved = item['achieved_today']?.toString() ?? '0';
         final planned = item['planned_today']?.toString() ?? '0';
         final total = item['total_qty']?.toString() ?? '0';
@@ -1870,7 +1593,8 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
         final isExpanded = _expandedItems.contains(itemKey);
         return _buildLogItemRow(
           title: taskSubject,
-          subtitle: 'Achieved: $achieved $uom / Planned: $planned $uom (Total: $total $uom)',
+          subtitle:
+              'Achieved: $achieved $uom / Planned: $planned $uom (Total: $total $uom)',
           trailing: '$percent%',
           isExpanded: isExpanded,
           onTap: () {
@@ -1891,13 +1615,17 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   Widget _buildMaterialReceivedPageContent() {
     final items = _document?.data['material_received'] as List? ?? [];
     if (items.isEmpty) {
-      return _buildEmptyState('No Material Received logs recorded', Icons.input_outlined);
+      return _buildEmptyState(
+        'No Material Received logs recorded',
+        Icons.input_outlined,
+      );
     }
     return ListView.separated(
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) =>
+          SizedBox(height: sizeContextOf(context, 8)),
       itemBuilder: (context, index) {
         final item = Map<String, dynamic>.from(items[index]);
         final itemCode = item['item_code']?.toString() ?? '-';
@@ -1930,13 +1658,17 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   Widget _buildMaterialDeliveriesPageContent() {
     final items = _document?.data['material_deliveries'] as List? ?? [];
     if (items.isEmpty) {
-      return _buildEmptyState('No Material Deliveries recorded', Icons.local_shipping_outlined);
+      return _buildEmptyState(
+        'No Material Deliveries recorded',
+        Icons.local_shipping_outlined,
+      );
     }
     return ListView.separated(
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) =>
+          SizedBox(height: sizeContextOf(context, 8)),
       itemBuilder: (context, index) {
         final item = Map<String, dynamic>.from(items[index]);
         final itemCode = item['item']?.toString() ?? '-';
@@ -1967,13 +1699,17 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   Widget _buildManpowerPageContent() {
     final items = _document?.data['manpower_log'] as List? ?? [];
     if (items.isEmpty) {
-      return _buildEmptyState('No Manpower Logs recorded', Icons.people_outline);
+      return _buildEmptyState(
+        'No Manpower Logs recorded',
+        Icons.people_outline,
+      );
     }
     return ListView.separated(
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) =>
+          SizedBox(height: sizeContextOf(context, 8)),
       itemBuilder: (context, index) {
         final item = Map<String, dynamic>.from(items[index]);
         final trade = item['trade_category']?.toString() ?? '-';
@@ -2004,13 +1740,17 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   Widget _buildEquipmentPageContent() {
     final items = _document?.data['equipment_log'] as List? ?? [];
     if (items.isEmpty) {
-      return _buildEmptyState('No Equipment Logs recorded', Icons.construction_outlined);
+      return _buildEmptyState(
+        'No Equipment Logs recorded',
+        Icons.construction_outlined,
+      );
     }
     return ListView.separated(
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) =>
+          SizedBox(height: sizeContextOf(context, 8)),
       itemBuilder: (context, index) {
         final item = Map<String, dynamic>.from(items[index]);
         final name = item['equipment_name']?.toString() ?? '-';
@@ -2040,13 +1780,17 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   Widget _buildVisitorsPageContent() {
     final items = _document?.data['visitors'] as List? ?? [];
     if (items.isEmpty) {
-      return _buildEmptyState('No Visitors recorded', Icons.person_pin_outlined);
+      return _buildEmptyState(
+        'No Visitors recorded',
+        Icons.person_pin_outlined,
+      );
     }
     return ListView.separated(
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) =>
+          SizedBox(height: sizeContextOf(context, 8)),
       itemBuilder: (context, index) {
         final item = Map<String, dynamic>.from(items[index]);
         final name = item['visitor_name']?.toString() ?? '-';
@@ -2076,7 +1820,10 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
   Widget _buildEmptyState(String message, IconData icon) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      padding: EdgeInsets.symmetric(
+        vertical: sizeContextOf(context, 32),
+        horizontal: sizeContextOf(context, 16),
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -2085,7 +1832,7 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, size: 40, color: Colors.grey.shade300),
-          const SizedBox(height: 12),
+          SizedBox(height: sizeContextOf(context, 12)),
           Text(
             message,
             style: TextStyle(
@@ -2093,143 +1840,6 @@ class _SiteDiaryFormPageState extends State<SiteDiaryFormPage> {
               color: Colors.grey.shade500,
               fontWeight: FontWeight.w500,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LinkSearchBottomSheet extends StatefulWidget {
-  final String doctype;
-  final ValueChanged<String> onSelected;
-
-  const _LinkSearchBottomSheet({
-    required this.doctype,
-    required this.onSelected,
-  });
-
-  @override
-  State<_LinkSearchBottomSheet> createState() => _LinkSearchBottomSheetState();
-}
-
-class _LinkSearchBottomSheetState extends State<_LinkSearchBottomSheet> {
-  final _searchController = TextEditingController();
-  List<LinkOptionEntity> _options = [];
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchOptions();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _fetchOptions([String query = '']) async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final sdk = sl<FrappeSDK>();
-      final List<List<dynamic>> filters = [];
-      if (query.isNotEmpty) {
-        filters.add([widget.doctype, 'name', 'like', '%$query%']);
-      }
-      final options = await sdk.linkOptions.getLinkOptions(
-        widget.doctype,
-        filters: filters.isNotEmpty ? filters : null,
-        forceRefresh: true,
-      );
-      if (!mounted) return;
-      setState(() {
-        _options = options;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
-      padding: EdgeInsets.only(
-        top: 16,
-        left: 16,
-        right: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Select ${widget.doctype}',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _searchController,
-            onChanged: (val) => _fetchOptions(val),
-            decoration: InputDecoration(
-              hintText: 'Search...',
-              prefixIcon: const Icon(Icons.search),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 12,
-              ),
-              filled: true,
-              fillColor: const Color(0xFFF2FAF6),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(child: Text('Error: $_error'))
-                : _options.isEmpty
-                ? const Center(child: Text('No options found'))
-                : ListView.builder(
-                    itemCount: _options.length,
-                    itemBuilder: (context, idx) {
-                      final option = _options[idx];
-                      return ListTile(
-                        title: Text(option.label ?? option.name),
-                        subtitle: Text(option.name),
-                        onTap: () => widget.onSelected(option.name),
-                      );
-                    },
-                  ),
           ),
         ],
       ),

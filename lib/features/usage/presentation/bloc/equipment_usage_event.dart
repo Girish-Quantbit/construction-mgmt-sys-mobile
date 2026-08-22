@@ -9,10 +9,11 @@ abstract class EquipmentUsageEvent extends Equatable {
 
 class LoadEquipmentUsages extends EquipmentUsageEvent {
   final bool isRefresh;
-  const LoadEquipmentUsages({this.isRefresh = false});
+  final String? project;
+  const LoadEquipmentUsages({this.isRefresh = false, this.project});
 
   @override
-  List<Object?> get props => [isRefresh];
+  List<Object?> get props => [isRefresh, project];
 }
 
 class LoadMoreEquipmentUsages extends EquipmentUsageEvent {}
@@ -25,6 +26,15 @@ class LoadEquipmentUsageDetails extends EquipmentUsageEvent {
   List<Object?> get props => [name];
 }
 
+class DownloadEquipmentUsagePdfEvent extends EquipmentUsageEvent {
+  final String entryName;
+
+  const DownloadEquipmentUsagePdfEvent(this.entryName);
+
+  @override
+  List<Object?> get props => [entryName];
+}
+
 class SearchChanged extends EquipmentUsageEvent {
   final String search;
   const SearchChanged(this.search);
@@ -35,8 +45,10 @@ class SearchChanged extends EquipmentUsageEvent {
 
 class FilterChanged extends EquipmentUsageEvent {
   final String? status;
-  const FilterChanged(this.status);
+  final DateTime? fromDate;
+  final DateTime? toDate;
+  const FilterChanged({this.status, this.fromDate, this.toDate});
 
   @override
-  List<Object?> get props => [status];
+  List<Object?> get props => [status, fromDate, toDate];
 }

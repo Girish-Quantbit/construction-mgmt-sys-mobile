@@ -1,14 +1,15 @@
+import 'dart:typed_data';
 import 'package:dartz/dartz.dart';
-import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/stock_entry.dart';
 import '../../domain/entities/stock_entry_item.dart';
 import '../../domain/repositories/stock_entry_repository.dart';
+import '../datasources/stock_entry_remote_data_source.dart';
 
 class StockEntryRepositoryImpl implements StockEntryRepository {
-  final FrappeSDK sdk;
+  final StockEntryRemoteDataSource remoteDataSource;
 
-  StockEntryRepositoryImpl(this.sdk);
+  StockEntryRepositoryImpl({required this.remoteDataSource});
 
   @override
   Future<Either<Failure, List<StockEntry>>> getStockEntries({
@@ -20,45 +21,22 @@ class StockEntryRepositoryImpl implements StockEntryRepository {
     String? project,
   }) async {
     try {
-      final List<List<dynamic>> filters = [];
-      if (status != null && status.isNotEmpty) {
-        filters.add(['Stock Entry', 'status', '=', status]);
-      }
-      if (stockEntryType != null && stockEntryType.isNotEmpty) {
-        filters.add(['Stock Entry', 'stock_entry_type', '=', stockEntryType]);
-      }
-      if (search != null && search.isNotEmpty) {
-        filters.add(['Stock Entry', 'name', 'like', '%$search%']);
-      }
-      if (project != null && project.isNotEmpty) {
-        filters.add(['Stock Entry', 'project', '=', project]);
-      }
-
-      final List<dynamic> dataList = await sdk.api.doctype.list(
-        'Stock Entry',
-        fields: [
-          'name',
-          'stock_entry_type',
-          'posting_date',
-          'purpose',
-          'docstatus',
-          'from_warehouse',
-          'to_warehouse',
-        ],
-        filters: filters,
-        limitStart: (page - 1) * pageSize,
-        limitPageLength: pageSize,
-        orderBy: 'posting_date desc',
+      final dataList = await remoteDataSource.getStockEntries(
+        page: page,
+        pageSize: pageSize,
+        search: search,
+        status: status,
+        stockEntryType: stockEntryType,
+        project: project,
       );
 
       final entries = dataList.map((data) {
-        String status = 'Draft';
+        String entryStatus = 'Draft';
         if (data['docstatus'] == 1) {
-          status = 'Submitted';
+          entryStatus = 'Submitted';
         } else if (data['docstatus'] == 2) {
-          status = 'Cancelled';
+          entryStatus = 'Cancelled';
         }
-
         return StockEntry(
           name: data['name'] ?? '',
           stockEntryType: data['stock_entry_type'] ?? '',
@@ -66,9 +44,14 @@ class StockEntryRepositoryImpl implements StockEntryRepository {
               ? DateTime.tryParse(data['posting_date'])
               : null,
           purpose: data['purpose'] ?? '',
-          status: status,
+          status: entryStatus,
           fromWarehouse: data['from_warehouse'],
           toWarehouse: data['to_warehouse'],
+          totalIncomingValue:
+              (data['total_incoming_value'] as num?)?.toDouble() ?? 0.0,
+          totalOutgoingValue:
+              (data['total_outgoing_value'] as num?)?.toDouble() ?? 0.0,
+          rawData: Map<String, dynamic>.from(data is Map ? data : {}),
         );
       }).toList();
 
@@ -81,10 +64,7 @@ class StockEntryRepositoryImpl implements StockEntryRepository {
   @override
   Future<Either<Failure, StockEntry>> getStockEntryDetails(String name) async {
     try {
-      final Map<String, dynamic> data = await sdk.api.doctype.getByName(
-        'Stock Entry',
-        name,
-      );
+      final data = await remoteDataSource.getStockEntryDetails(name);
 
       final List<dynamic> itemsData = data['items'] ?? [];
       final items = itemsData.map((item) {
@@ -100,11 +80,11 @@ class StockEntryRepositoryImpl implements StockEntryRepository {
         );
       }).toList();
 
-      String status = 'Draft';
+      String entryStatus = 'Draft';
       if (data['docstatus'] == 1) {
-        status = 'Submitted';
+        entryStatus = 'Submitted';
       } else if (data['docstatus'] == 2) {
-        status = 'Cancelled';
+        entryStatus = 'Cancelled';
       }
 
       return Right(
@@ -121,11 +101,52 @@ class StockEntryRepositoryImpl implements StockEntryRepository {
               (data['total_incoming_value'] as num?)?.toDouble() ?? 0.0,
           totalOutgoingValue:
               (data['total_outgoing_value'] as num?)?.toDouble() ?? 0.0,
-          status: status,
+          status: entryStatus,
           items: items,
           rawData: data,
         ),
       );
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Map<String, dynamic>?>> loadDocument(
+    String? entryName,
+  ) async {
+    try {
+      final data = await remoteDataSource.loadDocument(entryName);
+      return Right(data);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, String>> saveDocument({
+    required String? existingServerId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      final name = await remoteDataSource.saveDocument(
+        existingServerId: existingServerId,
+        payload: payload,
+      );
+      return Right(name);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  String getBaseUrl() => remoteDataSource.getBaseUrl();
+
+  @override
+  Future<Either<Failure, Uint8List>> downloadPdf(String entryName) async {
+    try {
+      final bytes = await remoteDataSource.downloadPdf(entryName);
+      return Right(bytes);
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

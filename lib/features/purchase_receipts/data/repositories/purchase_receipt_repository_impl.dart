@@ -1,9 +1,14 @@
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'package:dartz/dartz.dart';
 import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/purchase_receipt.dart';
 import '../../domain/entities/purchase_receipt_item.dart';
 import '../../domain/repositories/purchase_receipt_repository.dart';
+
+import 'package:cms/core/services/project_selection_service.dart';
+import 'package:cms/core/di/injection_container.dart';
 
 class PurchaseReceiptRepositoryImpl implements PurchaseReceiptRepository {
   final FrappeSDK sdk;
@@ -17,6 +22,11 @@ class PurchaseReceiptRepositoryImpl implements PurchaseReceiptRepository {
     String? search,
     String? status,
     String? project,
+    String? sortBy,
+    String? sortOrder,
+    DateTime? fromDate,
+    DateTime? toDate,
+    String? supplier,
   }) async {
     try {
       final List<List<dynamic>> filters = [];
@@ -26,23 +36,49 @@ class PurchaseReceiptRepositoryImpl implements PurchaseReceiptRepository {
       if (search != null && search.isNotEmpty) {
         filters.add(['Purchase Receipt', 'name', 'like', '%$search%']);
       }
-      if (project != null && project.isNotEmpty) {
-        filters.add(['Purchase Receipt', 'project', '=', project]);
+      
+      final activeProject = (project != null && project.isNotEmpty)
+          ? project
+          : sl<ProjectSelectionService>().selectedProject;
+      if (activeProject != null && activeProject.isNotEmpty) {
+        filters.add(['Purchase Receipt', 'project', '=', activeProject]);
       }
+
+      final activeSite = sl<ProjectSelectionService>().selectedSite;
+      if (activeSite != null && activeSite.isNotEmpty) {
+        filters.add(['Purchase Receipt', 'site', '=', activeSite]);
+      }
+
+      if (supplier != null && supplier.isNotEmpty) {
+        filters.add(['Purchase Receipt', 'supplier', 'like', '%$supplier%']);
+      }
+      if (fromDate != null) {
+        final fromStr = "${fromDate.year}-${fromDate.month.toString().padLeft(2, '0')}-${fromDate.day.toString().padLeft(2, '0')}";
+        filters.add(['Purchase Receipt', 'posting_date', '>=', fromStr]);
+      }
+      if (toDate != null) {
+        final toStr = "${toDate.year}-${toDate.month.toString().padLeft(2, '0')}-${toDate.day.toString().padLeft(2, '0')}";
+        filters.add(['Purchase Receipt', 'posting_date', '<=', toStr]);
+      }
+
+      final sortField = sortBy ?? 'posting_date';
+      final order = sortOrder ?? 'desc';
 
       final List<dynamic> dataList = await sdk.api.doctype.list(
         'Purchase Receipt',
-        fields: ['name', 'supplier', 'posting_date', 'grand_total', 'status'],
+        fields: ['name', 'supplier', 'supplier_name', 'total_qty', 'posting_date', 'grand_total', 'status'],
         filters: filters,
         limitStart: (page - 1) * pageSize,
         limitPageLength: pageSize,
-        orderBy: 'posting_date desc',
+        orderBy: '$sortField $order',
       );
 
       final receipts = dataList.map((data) {
         return PurchaseReceipt(
           name: data['name'] ?? '',
           supplier: data['supplier'] ?? '',
+          supplierName: data['supplier_name'] ?? '',
+          totalQty: (data['total_qty'] as num?)?.toDouble(),
           postingDate: data['posting_date'] != null
               ? DateTime.tryParse(data['posting_date'])
               : null,
@@ -82,6 +118,8 @@ class PurchaseReceiptRepositoryImpl implements PurchaseReceiptRepository {
         PurchaseReceipt(
           name: data['name'] ?? '',
           supplier: data['supplier'] ?? '',
+          supplierName: data['supplier_name'] ?? '',
+          totalQty: (data['total_qty'] as num?)?.toDouble(),
           postingDate: data['posting_date'] != null
               ? DateTime.tryParse(data['posting_date'])
               : null,
@@ -96,6 +134,48 @@ class PurchaseReceiptRepositoryImpl implements PurchaseReceiptRepository {
           rawData: data,
         ),
       );
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, String>> downloadPDF(String name) async {
+    try {
+      final String baseUrl = sdk.baseUrl.endsWith('/')
+          ? sdk.baseUrl.substring(0, sdk.baseUrl.length - 1)
+          : sdk.baseUrl;
+
+      final String urlStr =
+          '$baseUrl/api/method/frappe.utils.print_format.download_pdf'
+          '?doctype=Purchase%20Receipt'
+          '&name=${Uri.encodeComponent(name)}'
+          '&format=Standard'
+          '&no_letterhead=0'
+          '&letterhead=Company%20Letterhead%20-%20Grey'
+          '&settings=%7B%7D'
+          '&_lang=en'
+          '&pdf_generator=wkhtmltopdf';
+
+      final Map<String, String> headers = sdk.api.requestHeaders;
+
+      final response = await sdk.api.rest.client.get(
+        Uri.parse(urlStr),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        final tempDir = await getTemporaryDirectory();
+        final String sanitizedName = name.replaceAll(
+          RegExp(r'[/\\]'),
+          '_',
+        );
+        final file = File('${tempDir.path}/$sanitizedName.pdf');
+        await file.writeAsBytes(response.bodyBytes);
+        return Right(file.path);
+      } else {
+        return Left(ServerFailure('Server returned status code: ${response.statusCode}'));
+      }
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

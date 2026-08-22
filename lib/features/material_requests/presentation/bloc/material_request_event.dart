@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:equatable/equatable.dart';
 
 abstract class MaterialRequestEvent extends Equatable {
@@ -26,10 +27,24 @@ class SearchChanged extends MaterialRequestEvent {
 
 class FilterChanged extends MaterialRequestEvent {
   final String? status;
-  const FilterChanged(this.status);
+  final String? materialRequestType;
+  final DateTimeRange? requiredByDateRange;
+  final DateTimeRange? transactionDateRange;
+
+  const FilterChanged({
+    this.status,
+    this.materialRequestType,
+    this.requiredByDateRange,
+    this.transactionDateRange,
+  });
 
   @override
-  List<Object?> get props => [status];
+  List<Object?> get props => [
+        status,
+        materialRequestType,
+        requiredByDateRange,
+        transactionDateRange,
+      ];
 }
 
 class LoadMoreMaterialRequests extends MaterialRequestEvent {}
@@ -41,3 +56,12 @@ class LoadMaterialRequestDetails extends MaterialRequestEvent {
   @override
   List<Object?> get props => [name];
 }
+
+class DownloadMaterialRequestPDF extends MaterialRequestEvent {
+  final String name;
+  const DownloadMaterialRequestPDF(this.name);
+
+  @override
+  List<Object?> get props => [name];
+}
+

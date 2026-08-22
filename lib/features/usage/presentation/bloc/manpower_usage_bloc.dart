@@ -1,36 +1,50 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../domain/repositories/manpower_usage_repository.dart';
+import '../../domain/usecases/get_manpower_usages.dart';
+import '../../domain/usecases/get_manpower_usage_details.dart';
+import '../../domain/usecases/download_manpower_usage_pdf.dart';
+import '../../domain/usecases/get_manpower_usage_base_url.dart';
 import 'manpower_usage_event.dart';
 import 'manpower_usage_state.dart';
 
 class ManpowerUsageBloc extends Bloc<ManpowerUsageEvent, ManpowerUsageState> {
-  final ManpowerUsageRepository repository;
+  final GetManpowerUsages getManpowerUsages;
+  final GetManpowerUsageDetails getManpowerUsageDetails;
+  final DownloadManpowerUsagePdf downloadManpowerUsagePdf;
+  final GetManpowerUsageBaseUrl getManpowerUsageBaseUrl;
 
-  ManpowerUsageBloc({required this.repository})
-    : super(const ManpowerUsageState()) {
+  ManpowerUsageBloc({
+    required this.getManpowerUsages,
+    required this.getManpowerUsageDetails,
+    required this.downloadManpowerUsagePdf,
+    required this.getManpowerUsageBaseUrl,
+  }) : super(const ManpowerUsageState()) {
     on<LoadManpowerUsages>(_onLoadManpowerUsages);
     on<SearchChanged>(_onSearchChanged);
     on<FilterChanged>(_onFilterChanged);
     on<LoadMoreManpowerUsages>(_onLoadMoreManpowerUsages);
     on<LoadManpowerUsageDetails>(_onLoadManpowerUsageDetails);
+    on<DownloadManpowerUsagePdfEvent>(_onDownloadPdf);
   }
 
   Future<void> _onLoadManpowerUsages(
     LoadManpowerUsages event,
     Emitter<ManpowerUsageState> emit,
   ) async {
+    final activeProject = event.project ?? state.project;
     emit(
       state.copyWith(
         status: ManpowerUsageStatus.loading,
         currentPage: 1,
         hasReachedMax: false,
+        project: activeProject,
       ),
     );
 
-    final result = await repository.getManpowerUsages(
+    final result = await getManpowerUsages(
       page: 1,
       search: state.searchQuery,
       status: state.filterStatus,
+      project: activeProject,
     );
 
     result.fold(
@@ -55,7 +69,7 @@ class ManpowerUsageBloc extends Bloc<ManpowerUsageEvent, ManpowerUsageState> {
     Emitter<ManpowerUsageState> emit,
   ) async {
     emit(state.copyWith(searchQuery: event.query));
-    add(const LoadManpowerUsages());
+    add(LoadManpowerUsages(project: state.project));
   }
 
   Future<void> _onFilterChanged(
@@ -63,7 +77,7 @@ class ManpowerUsageBloc extends Bloc<ManpowerUsageEvent, ManpowerUsageState> {
     Emitter<ManpowerUsageState> emit,
   ) async {
     emit(state.copyWith(filterStatus: event.status));
-    add(const LoadManpowerUsages());
+    add(LoadManpowerUsages(project: state.project));
   }
 
   Future<void> _onLoadMoreManpowerUsages(
@@ -78,10 +92,11 @@ class ManpowerUsageBloc extends Bloc<ManpowerUsageEvent, ManpowerUsageState> {
     emit(state.copyWith(status: ManpowerUsageStatus.loadingMore));
 
     final nextPage = state.currentPage + 1;
-    final result = await repository.getManpowerUsages(
+    final result = await getManpowerUsages(
       page: nextPage,
       search: state.searchQuery,
       status: state.filterStatus,
+      project: state.project,
     );
 
     result.fold(
@@ -106,23 +121,42 @@ class ManpowerUsageBloc extends Bloc<ManpowerUsageEvent, ManpowerUsageState> {
     LoadManpowerUsageDetails event,
     Emitter<ManpowerUsageState> emit,
   ) async {
-    emit(state.copyWith(detailStatus: ManpowerUsageStatus.loading));
-
-    final result = await repository.getManpowerUsageDetails(event.name);
-
+    emit(state.copyWith(status: ManpowerUsageStatus.loading));
+    final result = await getManpowerUsageDetails(event.name);
+    final baseUrl = getManpowerUsageBaseUrl();
     result.fold(
       (failure) => emit(
         state.copyWith(
-          detailStatus: ManpowerUsageStatus.failure,
+          status: ManpowerUsageStatus.failure,
           errorMessage: failure.message,
         ),
       ),
       (usage) => emit(
         state.copyWith(
-          detailStatus: ManpowerUsageStatus.success,
+          status: ManpowerUsageStatus.success,
           selectedUsage: usage,
+          baseUrl: baseUrl,
         ),
       ),
+    );
+  }
+
+  Future<void> _onDownloadPdf(
+    DownloadManpowerUsagePdfEvent event,
+    Emitter<ManpowerUsageState> emit,
+  ) async {
+    emit(state.copyWith(pdfStatus: ManpowerUsagePdfStatus.downloading));
+    final result = await downloadManpowerUsagePdf(event.entryName);
+    result.fold(
+      (failure) => emit(state.copyWith(
+        pdfStatus: ManpowerUsagePdfStatus.failure,
+        pdfError: failure.message,
+      )),
+      (bytes) => emit(state.copyWith(
+        pdfStatus: ManpowerUsagePdfStatus.success,
+        pdfBytes: bytes,
+        pdfEntryName: event.entryName,
+      )),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:equatable/equatable.dart';
 import '../../domain/entities/material_request.dart';
 
@@ -14,6 +15,11 @@ class MaterialRequestState extends Equatable {
   final String? searchQuery;
   final String? filterStatus;
   final String? project;
+  final String? materialRequestType;
+  final DateTimeRange? requiredByDateRange;
+  final DateTimeRange? transactionDateRange;
+  final MaterialRequestStatus pdfStatus;
+  final String? pdfPath;
 
   const MaterialRequestState({
     this.requests = const [],
@@ -26,6 +32,11 @@ class MaterialRequestState extends Equatable {
     this.searchQuery,
     this.filterStatus,
     this.project,
+    this.materialRequestType,
+    this.requiredByDateRange,
+    this.transactionDateRange,
+    this.pdfStatus = MaterialRequestStatus.initial,
+    this.pdfPath,
   });
 
   MaterialRequestState copyWith({
@@ -39,6 +50,12 @@ class MaterialRequestState extends Equatable {
     String? searchQuery,
     String? filterStatus,
     String? project,
+    String? materialRequestType,
+    DateTimeRange? requiredByDateRange,
+    DateTimeRange? transactionDateRange,
+    MaterialRequestStatus? pdfStatus,
+    String? pdfPath,
+    bool clearFilters = false,
   }) {
     return MaterialRequestState(
       requests: requests ?? this.requests,
@@ -49,8 +66,13 @@ class MaterialRequestState extends Equatable {
       hasReachedMax: hasReachedMax ?? this.hasReachedMax,
       currentPage: currentPage ?? this.currentPage,
       searchQuery: searchQuery ?? this.searchQuery,
-      filterStatus: filterStatus ?? this.filterStatus,
+      filterStatus: clearFilters ? null : (filterStatus ?? this.filterStatus),
       project: project ?? this.project,
+      materialRequestType: clearFilters ? null : (materialRequestType ?? this.materialRequestType),
+      requiredByDateRange: clearFilters ? null : (requiredByDateRange ?? this.requiredByDateRange),
+      transactionDateRange: clearFilters ? null : (transactionDateRange ?? this.transactionDateRange),
+      pdfStatus: pdfStatus ?? this.pdfStatus,
+      pdfPath: pdfPath ?? this.pdfPath,
     );
   }
 
@@ -66,5 +88,10 @@ class MaterialRequestState extends Equatable {
     searchQuery,
     filterStatus,
     project,
+    materialRequestType,
+    requiredByDateRange,
+    transactionDateRange,
+    pdfStatus,
+    pdfPath,
   ];
 }

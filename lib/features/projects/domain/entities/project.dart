@@ -9,6 +9,11 @@ class Project extends Equatable {
   final String? priority;
   final DateTime? expectedStartDate;
   final DateTime? expectedEndDate;
+  final String? site;
+  final String? projectType;
+  final bool? isActive;
+  final double? perGrossMargin;
+  final String? department;
 
   const Project({
     required this.name,
@@ -19,6 +24,11 @@ class Project extends Equatable {
     this.priority,
     this.expectedStartDate,
     this.expectedEndDate,
+    this.site,
+    this.projectType,
+    this.isActive,
+    this.perGrossMargin,
+    this.department,
   });
 
   @override
@@ -31,5 +41,10 @@ class Project extends Equatable {
     priority,
     expectedStartDate,
     expectedEndDate,
+    site,
+    projectType,
+    isActive,
+    perGrossMargin,
+    department,
   ];
 }

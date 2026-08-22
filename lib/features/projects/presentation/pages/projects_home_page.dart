@@ -1,3 +1,4 @@
+import 'package:cms/core/theme/app_sizes.dart';
 import 'package:cms/core/widgets/custom_app_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -9,6 +10,9 @@ import 'package:intl/intl.dart';
 import 'package:cms/features/projects/presentation/pages/project_list_page.dart';
 import 'package:cms/features/usage/presentation/pages/usage_page.dart';
 import 'package:cms/features/auth/presentation/pages/profile_page.dart';
+import 'package:cms/features/task_progress/presentation/pages/task_progress_list_page.dart';
+import 'package:cms/features/task_progress/presentation/bloc/task_progress_bloc.dart';
+import 'package:cms/core/di/injection_container.dart';
 
 class ProjectsHomePage extends StatefulWidget {
   const ProjectsHomePage({super.key});
@@ -21,9 +25,18 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
   String _searchQuery = '';
   String _sortBy = 'name';
   bool _isSearching = false;
+  Project? _selectedProject;
+  String? _selectedSite;
 
   List<Project> _getFilteredAndSortedProjects(List<Project> projects) {
     var filtered = projects.where((p) {
+      if (_selectedSite != null &&
+          (p.site ?? 'Unspecified Site') != _selectedSite) {
+        return false;
+      }
+      if (_selectedProject != null && p.name != _selectedProject!.name) {
+        return false;
+      }
       final query = _searchQuery.toLowerCase();
       return p.projectName.toLowerCase().contains(query) ||
           p.status.toLowerCase().contains(query);
@@ -31,7 +44,9 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
 
     filtered.sort((a, b) {
       if (_sortBy == 'name') {
-        return a.projectName.toLowerCase().compareTo(b.projectName.toLowerCase());
+        return a.projectName.toLowerCase().compareTo(
+          b.projectName.toLowerCase(),
+        );
       } else if (_sortBy == 'progress') {
         return b.progress.compareTo(a.progress);
       } else if (_sortBy == 'expectedEndDate') {
@@ -65,136 +80,324 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
     }
   }
 
+  void _showSelectionSheet(BuildContext context) {
+    final state = context.read<ProjectBloc>().state;
+    if (state is! ProjectLoaded) return;
+
+    final projects = state.projects;
+    final sites = projects
+        .map((p) => p.site ?? 'Unspecified Site')
+        .toSet()
+        .toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.6,
+              padding: EdgeInsets.all(sizeContextOf(context, 16)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _selectedSite == null
+                            ? 'Select Site'
+                            : 'Select Project',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  if (_selectedSite != null)
+                    ListTile(
+                      leading: const Icon(Icons.arrow_back),
+                      title: const Text('Back to Sites'),
+                      onTap: () {
+                        setSheetState(() {
+                          _selectedSite = null;
+                        });
+                        setState(() {});
+                      },
+                    ),
+                  Expanded(
+                    child: _selectedSite == null
+                        ? ListView.builder(
+                            itemCount: sites.length,
+                            itemBuilder: (context, index) {
+                              final site = sites[index];
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.location_on_outlined,
+                                  color: AppColors.primary,
+                                ),
+                                title: Text(site),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () {
+                                  setSheetState(() {
+                                    _selectedSite = site;
+                                  });
+                                  setState(() {});
+                                },
+                              );
+                            },
+                          )
+                        : ListView.builder(
+                            itemCount: projects
+                                .where(
+                                  (p) =>
+                                      (p.site ?? 'Unspecified Site') ==
+                                      _selectedSite,
+                                )
+                                .length,
+                            itemBuilder: (context, index) {
+                              final siteProjects = projects
+                                  .where(
+                                    (p) =>
+                                        (p.site ?? 'Unspecified Site') ==
+                                        _selectedSite,
+                                  )
+                                  .toList();
+                              final project = siteProjects[index];
+                              final isSelected =
+                                  _selectedProject?.name == project.name;
+                              return ListTile(
+                                leading: Icon(
+                                  Icons.assignment_outlined,
+                                  color: isSelected
+                                      ? AppColors.primary
+                                      : Colors.grey,
+                                ),
+                                title: Text(project.projectName),
+                                subtitle: Text(project.status),
+                                trailing: isSelected
+                                    ? const Icon(
+                                        Icons.check,
+                                        color: AppColors.primary,
+                                      )
+                                    : null,
+                                onTap: () {
+                                  setState(() {
+                                    _selectedProject = project;
+                                  });
+                                  Navigator.pop(context);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                  if (_selectedProject != null || _selectedSite != null)
+                    Padding(
+                      padding: EdgeInsets.only(top: sizeContextOf(context, 8.0)),
+                      child: TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _selectedProject = null;
+                            _selectedSite = null;
+                          });
+                          Navigator.pop(context);
+                        },
+                        child: const Text(
+                          'Clear Filters',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const CustomAppBar(),
-      body: BlocBuilder<ProjectBloc, ProjectState>(
-        builder: (context, state) {
-          List<Project> displayProjects = [];
-          if (state is ProjectLoaded) {
-            displayProjects = _getFilteredAndSortedProjects(state.projects);
+      appBar: CustomAppBar(
+        title: _selectedProject?.projectName ?? 'Select Project',
+        subtitle: _selectedSite ?? 'Select Site',
+        onTitleTap: () => _showSelectionSheet(context),
+      ),
+      body: BlocListener<ProjectBloc, ProjectState>(
+        listener: (context, state) {
+          if (state is ProjectLoaded &&
+              state.projects.isNotEmpty &&
+              _selectedProject == null) {
+            final firstProject = state.projects.first;
+            setState(() {
+              _selectedProject = firstProject;
+              _selectedSite = firstProject.site ?? 'Unspecified Site';
+            });
           }
+        },
+        child: BlocBuilder<ProjectBloc, ProjectState>(
+          builder: (context, state) {
+            List<Project> displayProjects = [];
+            if (state is ProjectLoaded) {
+              displayProjects = _getFilteredAndSortedProjects(state.projects);
+            }
 
-          return RefreshIndicator(
-            onRefresh: () async {
-              context.read<ProjectBloc>().add(GetProjectsRequested());
-            },
-            child: CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 250),
-                      child: _isSearching
-                          ? Row(
-                              key: const ValueKey('searching_header'),
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    autofocus: true,
-                                    decoration: InputDecoration(
-                                      hintText: 'Search projects...',
-                                      prefixIcon: const Icon(Icons.search, size: 20),
-                                      suffixIcon: IconButton(
-                                        icon: const Icon(Icons.close, size: 20),
-                                        onPressed: () {
-                                          setState(() {
-                                            _isSearching = false;
-                                            _searchQuery = '';
-                                          });
-                                        },
+            return RefreshIndicator(
+              onRefresh: () async {
+                context.read<ProjectBloc>().add(GetProjectsRequested());
+              },
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: _isSearching
+                            ? Row(
+                                key: const ValueKey('searching_header'),
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      autofocus: true,
+                                      decoration: InputDecoration(
+                                        hintText: 'Search projects...',
+                                        prefixIcon: const Icon(
+                                          Icons.search,
+                                          size: 20,
+                                        ),
+                                        suffixIcon: IconButton(
+                                          icon: const Icon(
+                                            Icons.close,
+                                            size: 20,
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              _isSearching = false;
+                                              _searchQuery = '';
+                                            });
+                                          },
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          borderSide: const BorderSide(
+                                            color: AppColors.outlineVariant,
+                                          ),
+                                        ),
+                                        contentPadding:
+                                            EdgeInsets.symmetric(
+                                              horizontal: sizeContextOf(context, 12),
+                                              vertical: sizeContextOf(context, 8),
+                                            ),
+                                        filled: true,
+                                        fillColor:
+                                            AppColors.surfaceContainerLowest,
                                       ),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: const BorderSide(color: AppColors.outlineVariant),
-                                      ),
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
-                                      ),
-                                      filled: true,
-                                      fillColor: AppColors.surfaceContainerLowest,
-                                    ),
-                                    onChanged: (val) {
-                                      setState(() {
-                                        _searchQuery = val;
-                                      });
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                _buildSortMenu(context),
-                              ],
-                            )
-                          : Row(
-                              key: const ValueKey('normal_header'),
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Projects',
-                                  style: Theme.of(context).textTheme.headlineLarge,
-                                ),
-                                Row(
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.search, color: AppColors.onSurfaceVariant),
-                                      onPressed: () {
+                                      onChanged: (val) {
                                         setState(() {
-                                          _isSearching = true;
+                                          _searchQuery = val;
                                         });
                                       },
                                     ),
-                                    _buildSortMenu(context),
-                                  ],
-                                ),
-                              ],
-                            ),
+                                  ),
+                                  SizedBox(width: sizeContextOf(context, 8)),
+                                  _buildSortMenu(context),
+                                ],
+                              )
+                            : Row(
+                                key: const ValueKey('normal_header'),
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Projects',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.headlineLarge,
+                                  ),
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.search,
+                                          color: AppColors.onSurfaceVariant,
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            _isSearching = true;
+                                          });
+                                        },
+                                      ),
+                                      _buildSortMenu(context),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                      ),
                     ),
                   ),
-                ),
-                if (state is ProjectLoaded && state.projects.isNotEmpty)
-                  SliverToBoxAdapter(
-                    child: _buildSummarySection(state.projects),
-                  ),
-                if (state is ProjectLoading)
-                  const SliverFillRemaining(
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (state is ProjectError)
-                  SliverFillRemaining(child: Center(child: Text(state.message)))
-                else if (state is ProjectLoaded)
-                  displayProjects.isEmpty
-                      ? SliverFillRemaining(child: _buildEmptyState())
-                      : SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          sliver: SliverGrid(
-                            gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
-                                  maxCrossAxisExtent: 400,
-                                  mainAxisSpacing: 16,
-                                  crossAxisSpacing: 16,
-                                  mainAxisExtent: 120,
-                                ),
-                            delegate: SliverChildBuilderDelegate((
-                              context,
-                              index,
-                            ) {
-                              return ProjectCard(
-                                project: displayProjects[index],
-                              );
-                            }, childCount: displayProjects.length),
+                  if (state is ProjectLoaded && state.projects.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _buildSummarySection(state.projects),
+                    ),
+                  if (state is ProjectLoading)
+                    const SliverFillRemaining(
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (state is ProjectError)
+                    SliverFillRemaining(
+                      child: Center(child: Text(state.message)),
+                    )
+                  else if (state is ProjectLoaded)
+                    displayProjects.isEmpty
+                        ? SliverFillRemaining(child: _buildEmptyState())
+                        : SliverPadding(
+                            padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 24)),
+                            sliver: SliverGrid(
+                              gridDelegate:
+                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                                    maxCrossAxisExtent: 400,
+                                    mainAxisSpacing: 16,
+                                    crossAxisSpacing: 16,
+                                    mainAxisExtent: 120,
+                                  ),
+                              delegate: SliverChildBuilderDelegate((
+                                context,
+                                index,
+                              ) {
+                                return ProjectCard(
+                                  project: displayProjects[index],
+                                );
+                              }, childCount: displayProjects.length),
+                            ),
                           ),
-                        ),
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: 100), // Space for bottom nav and FAB
-                ),
-              ],
-            ),
-          );
-        },
+                  const SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 100,
+                    ), // Space for bottom nav and FAB
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
       bottomNavigationBar: _buildBottomNavBar(context),
     );
@@ -212,7 +415,10 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
       itemBuilder: (context) => const [
         PopupMenuItem(value: 'name', child: Text('Sort by Name')),
         PopupMenuItem(value: 'progress', child: Text('Sort by Progress')),
-        PopupMenuItem(value: 'expectedEndDate', child: Text('Sort by End Date')),
+        PopupMenuItem(
+          value: 'expectedEndDate',
+          child: Text('Sort by End Date'),
+        ),
         PopupMenuItem(value: 'priority', child: Text('Sort by Priority')),
         PopupMenuItem(value: 'status', child: Text('Sort by Status')),
       ],
@@ -227,7 +433,7 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 24), vertical: sizeContextOf(context, 8)),
       child: Row(
         children: [
           _buildSummaryCard(
@@ -236,21 +442,21 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
             Icons.business_center,
             AppColors.primary,
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: sizeContextOf(context, 12)),
           _buildSummaryCard(
             'On Track',
             onTrack.toString(),
             Icons.check_circle_outline,
             AppColors.success,
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: sizeContextOf(context, 12)),
           _buildSummaryCard(
             'Overdue',
             overdue.toString(),
             Icons.error_outline,
             AppColors.error,
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: sizeContextOf(context, 12)),
           _buildSummaryCard(
             'In Review',
             inReview.toString(),
@@ -270,14 +476,14 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
   ) {
     return Container(
       width: 140,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(sizeContextOf(context, 16)),
       decoration: BoxDecoration(
         color: AppColors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.outlineVariant, width: 1),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.08),
+            color: color.withValues(alpha: 0.08),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -287,14 +493,14 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: EdgeInsets.all(sizeContextOf(context, 8)),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: sizeContextOf(context, 12)),
           Text(
             value,
             style: const TextStyle(
@@ -326,7 +532,7 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
             size: 48,
             color: AppColors.outlineVariant,
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: sizeContextOf(context, 16)),
           const Text(
             'No active projects matching filter',
             style: TextStyle(
@@ -335,13 +541,13 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
               color: AppColors.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: sizeContextOf(context, 16)),
           ElevatedButton(
             onPressed: () {},
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.secondary,
               foregroundColor: AppColors.onSecondary,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 24), vertical: sizeContextOf(context, 12)),
               minimumSize: const Size(0, 0),
             ),
             child: const Text('Create New Project'),
@@ -360,7 +566,7 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
           top: BorderSide(color: AppColors.outlineVariant, width: 1),
         ),
       ),
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: sizeContextOf(context, 8)),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
@@ -370,6 +576,23 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
             label: 'Projects',
             isActive: true,
             onTap: () {},
+          ),
+          _buildNavBarItem(
+            context,
+            icon: Icons.trending_up,
+            label: 'Progress',
+            isActive: false,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BlocProvider(
+                    create: (context) => sl<TaskProgressBloc>(),
+                    child: const TaskProgressListPage(),
+                  ),
+                ),
+              );
+            },
           ),
           _buildNavBarItem(
             context,
@@ -410,7 +633,7 @@ class _ProjectsHomePageState extends State<ProjectsHomePage> {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 20), vertical: sizeContextOf(context, 8)),
         decoration: isActive
             ? BoxDecoration(
                 color: AppColors.primary,
@@ -453,7 +676,9 @@ class ProjectCard extends StatelessWidget {
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => ProjectListPage(project: project)),
+          MaterialPageRoute(
+            builder: (context) => ProjectListPage(project: project),
+          ),
         );
       },
       child: Container(
@@ -463,13 +688,13 @@ class ProjectCard extends StatelessWidget {
           border: Border.all(color: AppColors.outlineVariant, width: 1),
           boxShadow: [
             BoxShadow(
-              color: statusColor.withOpacity(0.05),
+              color: statusColor.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
           ],
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 16), vertical: sizeContextOf(context, 12)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -487,17 +712,29 @@ class ProjectCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(width: 8),
-                _buildStatusBadge(project.status),
+                SizedBox(width: sizeContextOf(context, 8)),
+                _buildStatusBadge(context, project.status),
               ],
             ),
-            const SizedBox(height: 8),
+            if (project.projectType != null && project.projectType!.isNotEmpty) ...[
+              SizedBox(height: sizeContextOf(context, 4)),
+              Text(
+                project.projectType!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.onSurfaceVariant.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+            SizedBox(height: sizeContextOf(context, 8)),
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(4),
+                  padding: EdgeInsets.all(sizeContextOf(context, 4)),
                   decoration: BoxDecoration(
-                    color: _getPriorityColor(project.priority).withOpacity(0.1),
+                    color: _getPriorityColor(
+                      project.priority,
+                    ).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Icon(
@@ -506,7 +743,7 @@ class ProjectCard extends StatelessWidget {
                     color: _getPriorityColor(project.priority),
                   ),
                 ),
-                const SizedBox(width: 6),
+                SizedBox(width: sizeContextOf(context, 6)),
                 Expanded(
                   child: Text(
                     project.priority ?? 'Medium',
@@ -518,11 +755,11 @@ class ProjectCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: sizeContextOf(context, 12)),
                 Container(
-                  padding: const EdgeInsets.all(4),
+                  padding: EdgeInsets.all(sizeContextOf(context, 4)),
                   decoration: BoxDecoration(
-                    color: AppColors.secondary.withOpacity(0.1),
+                    color: AppColors.secondary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: const Icon(
@@ -531,20 +768,22 @@ class ProjectCard extends StatelessWidget {
                     color: AppColors.secondary,
                   ),
                 ),
-                const SizedBox(width: 6),
+                SizedBox(width: sizeContextOf(context, 6)),
                 Text(
-                  project.expectedEndDate != null
-                      ? DateFormat(
-                          'MMM dd, yyyy',
-                        ).format(project.expectedEndDate!)
-                      : 'Jan 15, 2024',
+                  project.expectedStartDate != null && project.expectedEndDate != null
+                      ? '${DateFormat('MMM dd, yyyy').format(project.expectedStartDate!)} - ${DateFormat('MMM dd, yyyy').format(project.expectedEndDate!)}'
+                      : project.expectedEndDate != null
+                          ? 'Ends: ${DateFormat('MMM dd, yyyy').format(project.expectedEndDate!)}'
+                          : project.expectedStartDate != null
+                              ? 'Starts: ${DateFormat('MMM dd, yyyy').format(project.expectedStartDate!)}'
+                              : 'No dates set',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.onSurfaceVariant,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: sizeContextOf(context, 12)),
             Row(
               children: [
                 Text(
@@ -554,7 +793,7 @@ class ProjectCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: sizeContextOf(context, 12)),
                 Expanded(
                   child: Stack(
                     children: [
@@ -618,7 +857,7 @@ class ProjectCard extends StatelessWidget {
     }
   }
 
-  Widget _buildStatusBadge(String status) {
+  Widget _buildStatusBadge(BuildContext context, String status) {
     Color color;
     switch (status) {
       case 'Overdue':
@@ -644,11 +883,11 @@ class ProjectCard extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 10), vertical: sizeContextOf(context, 4)),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
       ),
       child: Text(
         status,

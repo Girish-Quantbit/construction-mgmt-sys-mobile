@@ -1,4 +1,5 @@
 /*
+import 'package:cms/core/theme/app_sizes.dart';
 import 'package:cms/core/widgets/custom_app_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -45,9 +46,9 @@ class _ProjectListPageState extends State<ProjectListPage> {
                     size: 48,
                     color: AppColors.error,
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: sizeContextOf(context, 16)),
                   Text('Error: ${state.message}'),
-                  const SizedBox(height: 16),
+                  SizedBox(height: sizeContextOf(context, 16)),
                   ElevatedButton(
                     onPressed: () =>
                         context.read<ProjectBloc>().add(GetProjectsRequested()),
@@ -61,9 +62,9 @@ class _ProjectListPageState extends State<ProjectListPage> {
               return const Center(child: Text('No projects found.'));
             }
             return ListView.separated(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(sizeContextOf(context, 16)),
               itemCount: state.projects.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
+              separatorBuilder: (context, index) => SizedBox(height: sizeContextOf(context, 12)),
               itemBuilder: (context, index) {
                 final project = state.projects[index];
                 return _ProjectCard(project: project);
@@ -99,7 +100,7 @@ class _ProjectCard extends StatelessWidget {
         },
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(sizeContextOf(context, 16)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -115,12 +116,12 @@ class _ProjectCard extends StatelessWidget {
                   _StatusChip(status: project.status),
                 ],
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: sizeContextOf(context, 8)),
               Text(
                 'Project ID: ${project.name}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: sizeContextOf(context, 16)),
               Row(
                 children: [
                   Expanded(
@@ -134,7 +135,7 @@ class _ProjectCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: sizeContextOf(context, 12)),
                   Text(
                     '${project.progress.toStringAsFixed(0)}%',
                     style: const TextStyle(
@@ -144,7 +145,7 @@ class _ProjectCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: sizeContextOf(context, 8)),
               if (project.expectedEndDate != null)
                 Row(
                   children: [
@@ -153,7 +154,7 @@ class _ProjectCard extends StatelessWidget {
                       size: 14,
                       color: AppColors.onSurfaceVariant,
                     ),
-                    const SizedBox(width: 4),
+                    SizedBox(width: sizeContextOf(context, 4)),
                     Text(
                       'End Date: ${project.expectedEndDate!.toLocal().toString().split(' ')[0]}',
                       style: Theme.of(context).textTheme.bodySmall,
@@ -194,7 +195,7 @@ class _StatusChip extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: sizeContextOf(context, 8), vertical: sizeContextOf(context, 4)),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),

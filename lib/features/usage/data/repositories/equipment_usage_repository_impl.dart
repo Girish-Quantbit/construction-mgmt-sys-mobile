@@ -1,14 +1,21 @@
+import 'dart:typed_data';
 import 'package:dartz/dartz.dart';
 import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
-import '../../../../core/error/failures.dart';
+import 'package:cms/core/error/failures.dart';
+import 'package:cms/core/services/project_selection_service.dart';
 import '../../domain/entities/equipment_usage.dart';
 import '../../domain/entities/equipment_usage_item.dart';
 import '../../domain/repositories/equipment_usage_repository.dart';
+import '../datasources/equipment_usage_remote_data_source.dart';
 
 class EquipmentUsageRepositoryImpl implements EquipmentUsageRepository {
-  final FrappeSDK sdk;
+  final EquipmentUsageRemoteDataSource remoteDataSource;
+  final ProjectSelectionService projectSelectionService;
 
-  EquipmentUsageRepositoryImpl(this.sdk);
+  EquipmentUsageRepositoryImpl({
+    required this.remoteDataSource,
+    required this.projectSelectionService,
+  });
 
   @override
   Future<Either<Failure, List<EquipmentUsage>>> getEquipmentUsages({
@@ -16,20 +23,20 @@ class EquipmentUsageRepositoryImpl implements EquipmentUsageRepository {
     int pageSize = 20,
     String? search,
     String? status,
+    DateTime? fromDate,
+    DateTime? toDate,
+    String? project,
   }) async {
     try {
-      final List<List<dynamic>> filters = [];
-      if (search != null && search.isNotEmpty) {
-        filters.add(['Equipment Usage', 'name', 'like', '%$search%']);
-      }
-
-      final List<dynamic> dataList = await sdk.api.doctype.list(
-        'Equipment Usage',
-        fields: ['name', 'project', 'site_date', 'docstatus'],
-        filters: filters,
-        limitStart: (page - 1) * pageSize,
-        limitPageLength: pageSize,
-        orderBy: 'site_date desc',
+      final activeProject = project ?? projectSelectionService.selectedProject;
+      final dataList = await remoteDataSource.getEquipmentUsages(
+        page: page,
+        pageSize: pageSize,
+        search: search,
+        status: status,
+        fromDate: fromDate,
+        toDate: toDate,
+        project: activeProject,
       );
 
       final usages = dataList.map((data) {
@@ -64,10 +71,7 @@ class EquipmentUsageRepositoryImpl implements EquipmentUsageRepository {
     String name,
   ) async {
     try {
-      final Map<String, dynamic> data = await sdk.api.doctype.getByName(
-        'Equipment Usage',
-        name,
-      );
+      final Map<String, dynamic> data = await remoteDataSource.getEquipmentUsageDetails(name);
 
       final List<dynamic> itemsData = data['equipment_usage_details'] ?? [];
       final items = itemsData.map((item) {
@@ -80,6 +84,12 @@ class EquipmentUsageRepositoryImpl implements EquipmentUsageRepository {
           equipmentItem: item['equipment_item'] ?? '',
           contractor: item['contractor'] ?? '',
           uom: item['uom'] ?? '',
+          openingReading: (item['opening_reading'] as num?)?.toDouble(),
+          closingReading: (item['closing_reading'] as num?)?.toDouble(),
+          dieselFilledInLtr: (item['diesel_filledin_ltr'] as num?)?.toDouble(),
+          billed: (item['billed'] as num?) == 1,
+          paid: (item['paid'] as num?) == 1,
+          workingHrs: (item['working_hrs'] as num?)?.toDouble(),
         );
       }).toList();
 
@@ -105,6 +115,57 @@ class EquipmentUsageRepositoryImpl implements EquipmentUsageRepository {
           rawData: data,
         ),
       );
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, DocTypeMeta>> getMeta() async {
+    try {
+      final meta = await remoteDataSource.getMeta();
+      return Right(meta);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Map<String, dynamic>?>> loadDocument(
+    String? usageName,
+  ) async {
+    try {
+      final doc = await remoteDataSource.loadDocument(usageName);
+      return Right(doc);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, String>> saveDocument({
+    required String? existingServerId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      final name = await remoteDataSource.saveDocument(
+        existingServerId: existingServerId,
+        payload: payload,
+      );
+      return Right(name);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  String getBaseUrl() => remoteDataSource.getBaseUrl();
+
+  @override
+  Future<Either<Failure, Uint8List>> downloadPdf(String entryName) async {
+    try {
+      final bytes = await remoteDataSource.downloadPdf(entryName);
+      return Right(bytes);
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

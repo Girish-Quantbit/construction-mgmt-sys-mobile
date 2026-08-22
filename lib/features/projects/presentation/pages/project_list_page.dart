@@ -1,3 +1,4 @@
+import 'package:cms/core/theme/app_sizes.dart';
 import 'package:cms/core/widgets/custom_app_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:cms/core/theme/app_colors.dart';
@@ -7,7 +8,9 @@ import 'package:cms/features/purchase_receipts/presentation/bloc/purchase_receip
 import 'package:cms/features/purchase_receipts/presentation/widgets/purchase_receipt_list_view.dart';
 import 'package:cms/features/stock_entry/presentation/bloc/stock_entry_bloc.dart';
 import 'package:cms/features/stock_entry/presentation/widgets/material_transfer_list_view.dart';
-import 'package:cms/features/stock_entry/presentation/widgets/stock_entry_list_view.dart';
+import 'package:cms/features/stock_entry/presentation/widgets/material_issue_list_view.dart';
+import 'package:cms/features/site_diary/presentation/bloc/site_diary_bloc.dart';
+import 'package:cms/features/site_diary/presentation/widgets/site_diary_list_view.dart';
 import 'package:cms/features/projects/domain/entities/project.dart';
 
 class ProjectListPage extends StatelessWidget {
@@ -19,7 +22,7 @@ class ProjectListPage extends StatelessWidget {
   Widget build(BuildContext context) {
     debugPrint('Building ProjectListPage');
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: CustomAppBar(
@@ -35,6 +38,7 @@ class ProjectListPage extends StatelessWidget {
               Tab(text: 'Material Issue'),
               Tab(text: 'Stock Entry'),
               Tab(text: 'Material Transfer'),
+              Tab(text: 'Site Diary'),
             ],
           ),
         ),
@@ -46,15 +50,22 @@ class ProjectListPage extends StatelessWidget {
             ),
             BlocProvider(
               create: (context) => sl<StockEntryBloc>(),
-              child: StockEntryListView(stockEntryType: 'Material Issue', project: project.name),
+              child: MaterialIssueListView(
+                stockEntryType: 'Material Issue',
+                project: project.name,
+              ),
             ),
             BlocProvider(
               create: (context) => sl<StockEntryBloc>(),
-              child: StockEntryListView(project: project.name),
+              child: MaterialIssueListView(project: project.name),
             ),
             BlocProvider(
               create: (context) => sl<StockEntryBloc>(),
               child: MaterialTransferListView(project: project.name),
+            ),
+            BlocProvider(
+              create: (context) => sl<SiteDiaryBloc>(),
+              child: SiteDiaryListView(project: project.name),
             ),
           ],
         ),
@@ -64,7 +75,7 @@ class ProjectListPage extends StatelessWidget {
 }
 
 class _TabPlaceholder extends StatelessWidget {
-  final String title; 
+  final String title;
   const _TabPlaceholder({required this.title});
 
   @override
@@ -76,9 +87,9 @@ class _TabPlaceholder extends StatelessWidget {
           Icon(
             Icons.construction,
             size: 64,
-            color: AppColors.outlineVariant.withOpacity(0.5),
+            color: AppColors.outlineVariant.withValues(alpha: 0.5),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: sizeContextOf(context, 16)),
           Text(
             title,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
