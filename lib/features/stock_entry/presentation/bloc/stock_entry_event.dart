@@ -34,3 +34,13 @@ class LoadStockEntryDetails extends StockEntryEvent {
   @override
   List<Object?> get props => [name];
 }
+
+class DownloadStockEntryPdfEvent extends StockEntryEvent {
+  final String entryName;
+
+  const DownloadStockEntryPdfEvent(this.entryName);
+
+  @override
+  List<Object?> get props => [entryName];
+}
+

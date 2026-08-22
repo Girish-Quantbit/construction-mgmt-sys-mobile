@@ -1,3 +1,4 @@
+import 'package:cms/core/theme/app_sizes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/auth_bloc.dart';
@@ -15,12 +16,12 @@ class ProfilePage extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Icon(Icons.account_circle, size: 100, color: Colors.grey),
-            const SizedBox(height: 20),
+            SizedBox(height: sizeContextOf(context, 20)),
             const Text(
               'User Profile',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 40),
+            SizedBox(height: sizeContextOf(context, 40)),
             ElevatedButton.icon(
               onPressed: () {
                 context.read<AuthBloc>().add(LogoutRequested());
@@ -29,9 +30,9 @@ class ProfilePage extends StatelessWidget {
               icon: const Icon(Icons.logout),
               label: const Text('Logout'),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 30,
-                  vertical: 15,
+                padding: EdgeInsets.symmetric(
+                  horizontal: sizeContextOf(context, 30),
+                  vertical: sizeContextOf(context, 15),
                 ),
               ),
             ),

@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 class AppSizes {
   // Padding & Margin
   static const double s4 = 4.0;
@@ -23,3 +25,11 @@ class AppSizes {
   // Input Height
   static const double inputHeight = 56.0;
 }
+
+/// Dynamically scales a dimension based on screen width
+double sizeContextOf(BuildContext context, double baseValue) {
+  final double screenWidth = MediaQuery.of(context).size.width;
+  const double baseWidth = 375.0; // Reference mobile screen width
+  return baseValue * (screenWidth / baseWidth);
+}
+

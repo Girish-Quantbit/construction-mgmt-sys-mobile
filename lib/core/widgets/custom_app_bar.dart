@@ -1,26 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:cms/core/theme/app_colors.dart';
+import 'package:cms/core/theme/app_sizes.dart';
 
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
+  final String? subtitle;
   final bool showSearch;
   final VoidBinding? onMenuPressed;
   final VoidBinding? onSearchPressed;
+  final VoidCallback? onTitleTap;
   final PreferredSizeWidget? bottom;
   final List<Widget>? actions;
 
   const CustomAppBar({
     super.key,
     this.title = 'BuildX',
+    this.subtitle,
     this.showSearch = true,
     this.onMenuPressed,
     this.onSearchPressed,
+    this.onTitleTap,
     this.bottom,
     this.actions,
   });
 
   @override
   Widget build(BuildContext context) {
+    final bottomWidget = bottom;
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -28,7 +34,9 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
           bottom: BorderSide(color: AppColors.outlineVariant, width: 1),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.symmetric(
+        horizontal: sizeContextOf(context, AppSizes.s24),
+      ),
       child: SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -52,24 +60,70 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                           Scaffold.of(context).openDrawer();
                         }
                       },
-                  style: IconButton.styleFrom(padding: const EdgeInsets.all(8)),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.bold,
+                  style: IconButton.styleFrom(
+                    padding: EdgeInsets.all(
+                      sizeContextOf(context, AppSizes.s8),
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (actions != null) ...actions!,
-                const SizedBox(width: 8),
+                SizedBox(width: sizeContextOf(context, AppSizes.s8)),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: onTitleTap,
+                    behavior: HitTestBehavior.opaque,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineMedium
+                                    ?.copyWith(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (onTitleTap != null) ...[
+                              SizedBox(
+                                width: sizeContextOf(context, AppSizes.s4),
+                              ),
+                              const Icon(
+                                Icons.keyboard_arrow_down,
+                                color: AppColors.primary,
+                                size: 20,
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (subtitle != null && subtitle!.isNotEmpty)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              top: sizeContextOf(context, 2),
+                            ),
+                            child: Text(
+                              subtitle!,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.onSurfaceVariant),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                ...?actions,
+                SizedBox(width: sizeContextOf(context, AppSizes.s8)),
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: sizeContextOf(context, 40),
+                  height: sizeContextOf(context, 40),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
@@ -84,7 +138,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
               ],
             ),
-            if (bottom != null) bottom!,
+            ?bottomWidget,
           ],
         ),
       ),

@@ -14,6 +14,13 @@ class PurchaseReceiptState extends Equatable {
   final String? searchQuery;
   final String? filterStatus;
   final String? project;
+  final String sortBy;
+  final String sortOrder;
+  final String? filterSupplier;
+  final DateTime? filterFromDate;
+  final DateTime? filterToDate;
+  final PurchaseReceiptStatus pdfStatus;
+  final String? pdfPath;
 
   const PurchaseReceiptState({
     this.receipts = const [],
@@ -26,6 +33,13 @@ class PurchaseReceiptState extends Equatable {
     this.searchQuery,
     this.filterStatus,
     this.project,
+    this.sortBy = 'posting_date',
+    this.sortOrder = 'desc',
+    this.filterSupplier,
+    this.filterFromDate,
+    this.filterToDate,
+    this.pdfStatus = PurchaseReceiptStatus.initial,
+    this.pdfPath,
   });
 
   PurchaseReceiptState copyWith({
@@ -39,6 +53,14 @@ class PurchaseReceiptState extends Equatable {
     String? searchQuery,
     String? filterStatus,
     String? project,
+    String? sortBy,
+    String? sortOrder,
+    String? filterSupplier,
+    DateTime? filterFromDate,
+    DateTime? filterToDate,
+    PurchaseReceiptStatus? pdfStatus,
+    String? pdfPath,
+    bool clearFilters = false,
   }) {
     return PurchaseReceiptState(
       receipts: receipts ?? this.receipts,
@@ -49,8 +71,15 @@ class PurchaseReceiptState extends Equatable {
       hasReachedMax: hasReachedMax ?? this.hasReachedMax,
       currentPage: currentPage ?? this.currentPage,
       searchQuery: searchQuery ?? this.searchQuery,
-      filterStatus: filterStatus ?? this.filterStatus,
+      filterStatus: clearFilters ? null : (filterStatus ?? this.filterStatus),
       project: project ?? this.project,
+      sortBy: sortBy ?? this.sortBy,
+      sortOrder: sortOrder ?? this.sortOrder,
+      filterSupplier: clearFilters ? null : (filterSupplier ?? this.filterSupplier),
+      filterFromDate: clearFilters ? null : (filterFromDate ?? this.filterFromDate),
+      filterToDate: clearFilters ? null : (filterToDate ?? this.filterToDate),
+      pdfStatus: pdfStatus ?? this.pdfStatus,
+      pdfPath: pdfPath ?? this.pdfPath,
     );
   }
 
@@ -66,5 +95,13 @@ class PurchaseReceiptState extends Equatable {
     searchQuery,
     filterStatus,
     project,
+    sortBy,
+    sortOrder,
+    filterSupplier,
+    filterFromDate,
+    filterToDate,
+    pdfStatus,
+    pdfPath,
   ];
 }
+

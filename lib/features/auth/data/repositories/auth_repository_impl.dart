@@ -31,18 +31,31 @@ class AuthRepositoryImpl implements AuthRepository {
 
         return Right(_currentUser!);
       } else {
-        return const Left(
-          AuthFailure('Login failed. Please check your credentials.'),
+        return Left(
+          AuthFailure('Invalid Email ID or Password.'),
         );
       }
     } catch (e) {
-      return Left(AuthFailure('Error: ${e.toString()}'));
+      final errorStr = e.toString();
+      if (errorStr.toLowerCase().contains('not allowed to use mobile app')) {
+        return Left(AuthFailure('please set user permission to use this mobile app'));
+      }
+      if (errorStr.contains('Invalid login credentials') ||
+          errorStr.contains('ValidationError') ||
+          errorStr.contains('Unable to login')) {
+        return Left(AuthFailure('Invalid Email ID or Password.'));
+      }
+      return Left(AuthFailure('Error: $errorStr'));
     }
   }
 
   @override
   Future<void> logout() async {
-    await sdk.auth.logout();
+    try {
+      await sdk.auth.logout();
+    } catch (_) {
+      // Ignore API errors during logout to guarantee local user state is cleared
+    }
     await sharedPreferences.remove(_userKey);
     await sharedPreferences.remove(_usernameKey);
     _currentUser = null;
@@ -62,6 +75,6 @@ class AuthRepositoryImpl implements AuthRepository {
       return Right(_currentUser!);
     }
 
-    return const Left(AuthFailure('No user logged in.'));
+    return Left(AuthFailure('No user logged in.'));
   }
 }

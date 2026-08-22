@@ -9,9 +9,17 @@ abstract class PurchaseReceiptRepository {
     String? search,
     String? status,
     String? project,
+    String? sortBy,
+    String? sortOrder,
+    DateTime? fromDate,
+    DateTime? toDate,
+    String? supplier,
   });
 
   Future<Either<Failure, PurchaseReceipt>> getPurchaseReceiptDetails(
     String name,
   );
+
+  Future<Either<Failure, String>> downloadPDF(String name);
 }
+

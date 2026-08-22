@@ -1,59 +1,39 @@
 import 'package:dartz/dartz.dart';
-import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import '../../../../core/error/failures.dart';
+import '../../../../core/services/project_selection_service.dart';
 import '../../domain/entities/task.dart';
 import '../../domain/repositories/task_repository.dart';
+import '../datasources/task_remote_data_source.dart';
+import '../models/task_model.dart';
 
 class TaskRepositoryImpl implements TaskRepository {
-  final FrappeSDK sdk;
+  final TaskRemoteDataSource remoteDataSource;
+  final ProjectSelectionService projectSelectionService;
 
-  TaskRepositoryImpl(this.sdk);
+  TaskRepositoryImpl({
+    required this.remoteDataSource,
+    required this.projectSelectionService,
+  });
 
   @override
   Future<Either<Failure, List<ProjectTask>>> getTasks({String? project}) async {
     try {
       final List<List<dynamic>> filters = [];
-      if (project != null) {
-        filters.add(['Task', 'project', '=', project]);
+      
+      final activeProject = (project != null && project.isNotEmpty)
+          ? project
+          : projectSelectionService.selectedProject;
+      if (activeProject != null && activeProject.isNotEmpty) {
+        filters.add(['Task', 'project', '=', activeProject]);
       }
 
-      final List<dynamic> dataList = await sdk.api.doctype.list(
-        'Task',
-        filters: filters,
-        fields: [
-          'name',
-          'subject',
-          'status',
-          'project',
-          'description',
-          'exp_end_date',
-          'progress',
-          'priority',
-          'task_weight',
-          'parent_task',
-          'is_group',
-        ],
-      );
-
-      final tasks = dataList.map((data) {
-        return ProjectTask(
-          name: data['name'] ?? '',
-          subject: data['subject'] ?? '',
-          status: data['status'] ?? '',
-          project: data['project'] ?? '',
-          description: data['description'],
-          expEndDate: data['exp_end_date'] != null
-              ? DateTime.tryParse(data['exp_end_date'])
-              : null,
-          progress: (data['progress'] as num?)?.toDouble() ?? 0.0,
-          priority: data['priority'],
-          weight: (data['task_weight'] as num?)?.toDouble(),
-          parentTask: data['parent_task'],
-          isGroup: data['is_group'] == 1,
-        );
-      }).toList();
-
+      final List<dynamic> dataList = await remoteDataSource.getTasks(filters: filters);
+      final tasks = dataList.map((data) => TaskModel.fromJson(data)).toList();
       return Right(tasks);
+    } on SessionExpiredException catch (e) {
+      return Left(SessionExpiredFailure(e.message));
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }
@@ -65,29 +45,12 @@ class TaskRepositoryImpl implements TaskRepository {
     String status,
   ) async {
     try {
-      final Map<String, dynamic> data = await sdk.api.document.updateDocument(
-        'Task',
-        name,
-        {'status': status},
-      );
-
-      return Right(
-        ProjectTask(
-          name: data['name'] ?? '',
-          subject: data['subject'] ?? '',
-          status: data['status'] ?? '',
-          project: data['project'] ?? '',
-          description: data['description'],
-          expEndDate: data['exp_end_date'] != null
-              ? DateTime.tryParse(data['exp_end_date'])
-              : null,
-          progress: (data['progress'] as num?)?.toDouble() ?? 0.0,
-          priority: data['priority'],
-          weight: (data['task_weight'] as num?)?.toDouble(),
-          parentTask: data['parent_task'],
-          isGroup: data['is_group'] == 1,
-        ),
-      );
+      final Map<String, dynamic> data = await remoteDataSource.updateTaskStatus(name, status);
+      return Right(TaskModel.fromJson(data));
+    } on SessionExpiredException catch (e) {
+      return Left(SessionExpiredFailure(e.message));
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

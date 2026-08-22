@@ -1,42 +1,52 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'dart:async';
-import '../../domain/repositories/equipment_usage_repository.dart';
+import '../../domain/usecases/get_equipment_usages.dart';
+import '../../domain/usecases/get_equipment_usage_details.dart';
+import '../../domain/usecases/download_equipment_usage_pdf.dart';
+import '../../domain/usecases/get_equipment_usage_base_url.dart';
 import 'equipment_usage_event.dart';
 import 'equipment_usage_state.dart';
 
-class EquipmentUsageBloc
-    extends Bloc<EquipmentUsageEvent, EquipmentUsageState> {
-  final EquipmentUsageRepository repository;
-  static const int pageSize = 20;
-  Timer? _debounce;
+class EquipmentUsageBloc extends Bloc<EquipmentUsageEvent, EquipmentUsageState> {
+  final GetEquipmentUsages getEquipmentUsages;
+  final GetEquipmentUsageDetails getEquipmentUsageDetails;
+  final DownloadEquipmentUsagePdf downloadEquipmentUsagePdf;
+  final GetEquipmentUsageBaseUrl getEquipmentUsageBaseUrl;
 
-  EquipmentUsageBloc({required this.repository})
-    : super(const EquipmentUsageState()) {
+  EquipmentUsageBloc({
+    required this.getEquipmentUsages,
+    required this.getEquipmentUsageDetails,
+    required this.downloadEquipmentUsagePdf,
+    required this.getEquipmentUsageBaseUrl,
+  }) : super(const EquipmentUsageState()) {
     on<LoadEquipmentUsages>(_onLoadEquipmentUsages);
-    on<LoadMoreEquipmentUsages>(_onLoadMoreEquipmentUsages);
-    on<LoadEquipmentUsageDetails>(_onLoadEquipmentUsageDetails);
     on<SearchChanged>(_onSearchChanged);
     on<FilterChanged>(_onFilterChanged);
+    on<LoadMoreEquipmentUsages>(_onLoadMoreEquipmentUsages);
+    on<LoadEquipmentUsageDetails>(_onLoadEquipmentUsageDetails);
+    on<DownloadEquipmentUsagePdfEvent>(_onDownloadPdf);
   }
 
   Future<void> _onLoadEquipmentUsages(
     LoadEquipmentUsages event,
     Emitter<EquipmentUsageState> emit,
   ) async {
+    final activeProject = event.project ?? state.project;
     emit(
       state.copyWith(
         status: EquipmentUsageStatus.loading,
         currentPage: 1,
         hasReachedMax: false,
-        usages: event.isRefresh ? [] : state.usages,
+        project: activeProject,
       ),
     );
 
-    final result = await repository.getEquipmentUsages(
+    final result = await getEquipmentUsages(
       page: 1,
-      pageSize: pageSize,
-      search: state.search,
+      search: state.searchQuery,
       status: state.filterStatus,
+      fromDate: state.filterFromDate,
+      toDate: state.filterToDate,
+      project: activeProject,
     );
 
     result.fold(
@@ -50,36 +60,66 @@ class EquipmentUsageBloc
         state.copyWith(
           status: EquipmentUsageStatus.success,
           usages: usages,
-          hasReachedMax: usages.length < pageSize,
-          currentPage: 1,
+          hasReachedMax: usages.length < 20,
         ),
       ),
     );
+  }
+
+  Future<void> _onSearchChanged(
+    SearchChanged event,
+    Emitter<EquipmentUsageState> emit,
+  ) async {
+    emit(state.copyWith(searchQuery: event.search));
+    add(LoadEquipmentUsages(project: state.project));
+  }
+
+  Future<void> _onFilterChanged(
+    FilterChanged event,
+    Emitter<EquipmentUsageState> emit,
+  ) async {
+    emit(state.copyWith(
+      filterStatus: event.status,
+      filterFromDate: event.fromDate,
+      filterToDate: event.toDate,
+    ));
+    add(LoadEquipmentUsages(project: state.project));
   }
 
   Future<void> _onLoadMoreEquipmentUsages(
     LoadMoreEquipmentUsages event,
     Emitter<EquipmentUsageState> emit,
   ) async {
-    if (state.hasReachedMax || state.status == EquipmentUsageStatus.loading) {
+    if (state.hasReachedMax ||
+        state.status == EquipmentUsageStatus.loadingMore) {
       return;
     }
 
+    emit(state.copyWith(status: EquipmentUsageStatus.loadingMore));
+
     final nextPage = state.currentPage + 1;
-    final result = await repository.getEquipmentUsages(
+    final result = await getEquipmentUsages(
       page: nextPage,
-      pageSize: pageSize,
-      search: state.search,
+      search: state.searchQuery,
       status: state.filterStatus,
+      fromDate: state.filterFromDate,
+      toDate: state.filterToDate,
+      project: state.project,
     );
 
     result.fold(
-      (failure) => null, // Silently fail on pagination
-      (usages) => emit(
+      (failure) => emit(
         state.copyWith(
-          usages: List.of(state.usages)..addAll(usages),
-          hasReachedMax: usages.length < pageSize,
+          status: EquipmentUsageStatus.failure,
+          errorMessage: failure.message,
+        ),
+      ),
+      (newUsages) => emit(
+        state.copyWith(
+          status: EquipmentUsageStatus.success,
+          usages: List.of(state.usages)..addAll(newUsages),
           currentPage: nextPage,
+          hasReachedMax: newUsages.length < 20,
         ),
       ),
     );
@@ -89,48 +129,42 @@ class EquipmentUsageBloc
     LoadEquipmentUsageDetails event,
     Emitter<EquipmentUsageState> emit,
   ) async {
-    emit(state.copyWith(detailStatus: EquipmentUsageStatus.loading));
-
-    final result = await repository.getEquipmentUsageDetails(event.name);
-
+    emit(state.copyWith(status: EquipmentUsageStatus.loading));
+    final result = await getEquipmentUsageDetails(event.name);
+    final baseUrl = getEquipmentUsageBaseUrl();
     result.fold(
       (failure) => emit(
         state.copyWith(
-          detailStatus: EquipmentUsageStatus.failure,
+          status: EquipmentUsageStatus.failure,
           errorMessage: failure.message,
         ),
       ),
       (usage) => emit(
         state.copyWith(
-          detailStatus: EquipmentUsageStatus.success,
+          status: EquipmentUsageStatus.success,
           selectedUsage: usage,
+          baseUrl: baseUrl,
         ),
       ),
     );
   }
 
-  void _onSearchChanged(
-    SearchChanged event,
+  Future<void> _onDownloadPdf(
+    DownloadEquipmentUsagePdfEvent event,
     Emitter<EquipmentUsageState> emit,
-  ) {
-    emit(state.copyWith(search: event.search));
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      add(const LoadEquipmentUsages(isRefresh: true));
-    });
-  }
-
-  void _onFilterChanged(
-    FilterChanged event,
-    Emitter<EquipmentUsageState> emit,
-  ) {
-    emit(state.copyWith(filterStatus: event.status));
-    add(const LoadEquipmentUsages(isRefresh: true));
-  }
-
-  @override
-  Future<void> close() {
-    _debounce?.cancel();
-    return super.close();
+  ) async {
+    emit(state.copyWith(pdfStatus: EquipmentUsagePdfStatus.downloading));
+    final result = await downloadEquipmentUsagePdf(event.entryName);
+    result.fold(
+      (failure) => emit(state.copyWith(
+        pdfStatus: EquipmentUsagePdfStatus.failure,
+        pdfError: failure.message,
+      )),
+      (bytes) => emit(state.copyWith(
+        pdfStatus: EquipmentUsagePdfStatus.success,
+        pdfBytes: bytes,
+        pdfEntryName: event.entryName,
+      )),
+    );
   }
 }

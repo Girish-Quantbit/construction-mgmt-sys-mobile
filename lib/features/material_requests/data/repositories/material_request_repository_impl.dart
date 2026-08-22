@@ -1,14 +1,26 @@
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:dartz/dartz.dart';
 import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/material_request.dart';
-import '../../domain/entities/material_request_item.dart';
 import '../../domain/repositories/material_request_repository.dart';
+import '../datasources/material_request_remote_data_source.dart';
+import '../models/material_request_model.dart';
+import 'package:cms/core/services/project_selection_service.dart';
 
 class MaterialRequestRepositoryImpl implements MaterialRequestRepository {
-  final FrappeSDK sdk;
+  final MaterialRequestRemoteDataSource remoteDataSource;
+  final ProjectSelectionService projectSelectionService;
+  final FrappeSDK sdk; // Kept for helper values like sdk.baseUrl and sdk.api.requestHeaders
 
-  MaterialRequestRepositoryImpl(this.sdk);
+  MaterialRequestRepositoryImpl({
+    required this.remoteDataSource,
+    required this.projectSelectionService,
+    required this.sdk,
+  });
 
   @override
   Future<Either<Failure, List<MaterialRequest>>> getMaterialRequests({
@@ -17,6 +29,9 @@ class MaterialRequestRepositoryImpl implements MaterialRequestRepository {
     String? search,
     String? status,
     String? project,
+    String? materialRequestType,
+    DateTimeRange? requiredByDateRange,
+    DateTimeRange? transactionDateRange,
   }) async {
     try {
       final List<List<dynamic>> filters = [];
@@ -26,32 +41,56 @@ class MaterialRequestRepositoryImpl implements MaterialRequestRepository {
       if (search != null && search.isNotEmpty) {
         filters.add(['Material Request', 'name', 'like', '%$search%']);
       }
-      if (project != null && project.isNotEmpty) {
-        filters.add(['Material Request Item', 'project', '=', project]);
+      
+      final activeProject = (project != null && project.isNotEmpty)
+          ? project
+          : projectSelectionService.selectedProject;
+      if (activeProject != null && activeProject.isNotEmpty) {
+        filters.add(['Material Request Item', 'project', '=', activeProject]);
+      }
+      if (materialRequestType != null && materialRequestType.isNotEmpty) {
+        filters.add(['Material Request', 'material_request_type', '=', materialRequestType]);
+      }
+      if (requiredByDateRange != null) {
+        final start = DateFormat('yyyy-MM-dd').format(requiredByDateRange.start);
+        final end = DateFormat('yyyy-MM-dd').format(requiredByDateRange.end);
+        filters.add(['Material Request', 'schedule_date', '>=', start]);
+        filters.add(['Material Request', 'schedule_date', '<=', end]);
+      }
+      if (transactionDateRange != null) {
+        final start = DateFormat('yyyy-MM-dd').format(transactionDateRange.start);
+        final end = DateFormat('yyyy-MM-dd').format(transactionDateRange.end);
+        filters.add(['Material Request', 'transaction_date', '>=', start]);
+        filters.add(['Material Request', 'transaction_date', '<=', end]);
       }
 
-      final List<dynamic> dataList = await sdk.api.doctype.list(
-        'Material Request',
-        fields: ['name', 'title', 'transaction_date', 'material_request_type', 'status'],
+      final List<dynamic> dataList = await remoteDataSource.getMaterialRequests(
         filters: filters,
         limitStart: (page - 1) * pageSize,
         limitPageLength: pageSize,
-        orderBy: 'transaction_date desc',
       );
 
-      final requests = dataList.map((data) {
-        return MaterialRequest(
-          name: data['name'] ?? '',
-          title: data['title'] ?? data['name'] ?? '',
-          transactionDate: data['transaction_date'] != null
-              ? DateTime.tryParse(data['transaction_date'])
-              : null,
-          materialRequestType: data['material_request_type'] ?? '',
-          status: data['status'] ?? '',
-        );
+      final requestsFuture = dataList.map((data) async {
+        final name = data['name']?.toString() ?? '';
+        if (name.isEmpty) {
+          return MaterialRequestModel.fromJson(Map<String, dynamic>.from(data));
+        }
+        try {
+          final Map<String, dynamic> fullData = await remoteDataSource.getMaterialRequestDetails(name);
+          return MaterialRequestModel.fromJson(fullData);
+        } catch (e) {
+          debugPrint('Error fetching full details for $name: $e');
+          return MaterialRequestModel.fromJson(Map<String, dynamic>.from(data));
+        }
       }).toList();
 
+      final List<MaterialRequest> requests = await Future.wait(requestsFuture);
+
       return Right(requests);
+    } on SessionExpiredException catch (e) {
+      return Left(SessionExpiredFailure(e.message));
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }
@@ -62,48 +101,58 @@ class MaterialRequestRepositoryImpl implements MaterialRequestRepository {
     String name,
   ) async {
     try {
-      final Map<String, dynamic> data = await sdk.api.doctype.getByName(
-        'Material Request',
-        name,
+      final Map<String, dynamic> data = await remoteDataSource.getMaterialRequestDetails(name);
+      return Right(MaterialRequestModel.fromJson(data));
+    } on SessionExpiredException catch (e) {
+      return Left(SessionExpiredFailure(e.message));
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, String>> downloadPDF(String name) async {
+    try {
+      final String baseUrl = sdk.baseUrl.endsWith('/')
+          ? sdk.baseUrl.substring(0, sdk.baseUrl.length - 1)
+          : sdk.baseUrl;
+
+      final String urlStr =
+          '$baseUrl/api/method/frappe.utils.print_format.download_pdf'
+          '?doctype=Material%20Request'
+          '&name=${Uri.encodeComponent(name)}'
+          '&format=Standard'
+          '&no_letterhead=0'
+          '&letterhead=Company%20Letterhead%20-%20Grey'
+          '&settings=%7B%7D'
+          '&_lang=en'
+          '&pdf_generator=wkhtmltopdf';
+
+      final Map<String, String> headers = sdk.api.requestHeaders;
+
+      final response = await remoteDataSource.downloadPDF(
+        url: urlStr,
+        headers: headers,
       );
 
-      final List<dynamic> itemsData = data['items'] ?? [];
-      final items = itemsData.map((item) {
-        return MaterialRequestItem(
-          itemName: item['item_name'] ?? '',
-          itemCode: item['item_code'] ?? '',
-          qty: (item['qty'] as num?)?.toDouble() ?? 0.0,
-          uom: item['uom'],
-          requiredByDate: item['required_by_date'] != null
-              ? DateTime.tryParse(item['required_by_date'])
-              : null,
-          scheduleDate: item['schedule_date'] != null
-              ? DateTime.tryParse(item['schedule_date'])
-              : null,
-          warehouse: item['warehouse'],
+      if (response.statusCode == 200) {
+        final tempDir = await getTemporaryDirectory();
+        final String sanitizedName = name.replaceAll(
+          RegExp(r'[/\\]'),
+          '_',
         );
-      }).toList();
-
-      return Right(
-        MaterialRequest(
-          name: data['name'] ?? '',
-          title: data['title'] ?? data['name'] ?? '',
-          transactionDate: data['transaction_date'] != null
-              ? DateTime.tryParse(data['transaction_date'])
-              : null,
-          materialRequestType: data['material_request_type'] ?? '',
-          status: data['status'] ?? '',
-          items: items,
-          scheduleDate: data['schedule_date'] != null
-              ? DateTime.tryParse(data['schedule_date'])
-              : null,
-          buyingPriceList: data['buying_price_list'],
-          setWarehouse: data['set_warehouse'],
-          perOrdered: (data['per_ordered'] as num?)?.toDouble(),
-          perReceived: (data['per_received'] as num?)?.toDouble(),
-          rawData: data,
-        ),
-      );
+        final file = File('${tempDir.path}/$sanitizedName.pdf');
+        await file.writeAsBytes(response.bodyBytes);
+        return Right(file.path);
+      } else {
+        return Left(ServerFailure('Server returned status code: ${response.statusCode}'));
+      }
+    } on SessionExpiredException catch (e) {
+      return Left(SessionExpiredFailure(e.message));
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

@@ -44,6 +44,14 @@ dependencies:
       ref: develop # Using develop as it's the default branch in many SDKs or specified in README
   intl: ^0.20.2
   bloc: ^9.2.1
+  url_launcher: ^6.3.2
+  path_provider: ^2.1.6
+  share_plus: ^12.0.2
+  http: ^1.6.0
+  excel: ^4.0.6
+  image_picker: ^1.1.2
+  flutter_dotenv: ^6.0.1
+  geolocator: ^13.0.2
 
 dev_dependencies:
   flutter_test:
@@ -55,6 +63,13 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/app_icon.png"
+  remove_alpha_ios: true
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -69,6 +84,7 @@ flutter:
 
   assets:
     - assets/images/logo.png
+    - .env
 
   # To add assets to your application, add an assets section, like this:
   # assets:

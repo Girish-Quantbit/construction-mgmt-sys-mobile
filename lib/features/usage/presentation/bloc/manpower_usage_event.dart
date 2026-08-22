@@ -9,10 +9,11 @@ abstract class ManpowerUsageEvent extends Equatable {
 
 class LoadManpowerUsages extends ManpowerUsageEvent {
   final bool isRefresh;
-  const LoadManpowerUsages({this.isRefresh = false});
+  final String? project;
+  const LoadManpowerUsages({this.isRefresh = false, this.project});
 
   @override
-  List<Object?> get props => [isRefresh];
+  List<Object?> get props => [isRefresh, project];
 }
 
 class LoadMoreManpowerUsages extends ManpowerUsageEvent {}
@@ -39,4 +40,13 @@ class LoadManpowerUsageDetails extends ManpowerUsageEvent {
 
   @override
   List<Object?> get props => [name];
+}
+
+class DownloadManpowerUsagePdfEvent extends ManpowerUsageEvent {
+  final String entryName;
+
+  const DownloadManpowerUsagePdfEvent(this.entryName);
+
+  @override
+  List<Object?> get props => [entryName];
 }
