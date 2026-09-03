@@ -20,7 +20,6 @@ import '../../../../features/site_diary/presentation/widgets/site_diary_list_vie
 import '../../../../features/task_progress/presentation/bloc/task_progress_bloc.dart';
 import '../../../../features/task_progress/presentation/pages/task_progress_list_page.dart';
 import '../../../../features/task_progress/presentation/pages/daily_progress_report_page.dart';
-import '../../../../features/auth/presentation/pages/profile_page.dart';
 import '../../../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../../../features/auth/presentation/bloc/auth_event.dart';
 import '../../../../features/auth/presentation/bloc/auth_state.dart';
@@ -50,6 +49,7 @@ class _HomePageState extends State<HomePage> {
   String? _selectedSite;
   List<String> _fetchedSites = [];
   bool _isLoadingSites = false;
+  String? _companyName;
 
   int _purchaseReceiptCount = 0;
   int _materialRequestCount = 0;
@@ -68,6 +68,7 @@ class _HomePageState extends State<HomePage> {
     sl<HomepageReloadNotifier>().addListener(_fetchCounts);
     _loadHomepagePreference();
     _fetchSites();
+    _fetchCompany();
     _fetchCounts();
   }
 
@@ -252,6 +253,36 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _isLoadingSites = false;
       });
+    }
+  }
+
+  Future<void> _fetchCompany() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('cached_company_name');
+      if (cached != null && cached.isNotEmpty && mounted) {
+        setState(() {
+          _companyName = cached;
+        });
+      }
+
+      final sdk = sl<FrappeSDK>();
+      final List<dynamic> result = await sdk.api.doctype.list(
+        'Company',
+        fields: ['name'],
+        limitPageLength: 1,
+      );
+      if (result.isNotEmpty && mounted) {
+        final fetched = result.first['name']?.toString();
+        if (fetched != null && fetched.isNotEmpty) {
+          setState(() {
+            _companyName = fetched;
+          });
+          await prefs.setString('cached_company_name', fetched);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching company: $e');
     }
   }
 
@@ -627,22 +658,21 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         );
-        titleWidget = const Column(
+        titleWidget = Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(
-              // 'Select Site',
-              'Aarya Constructions',
-              style: TextStyle(
+              _companyName ?? 'Select Site',
+              style: const TextStyle(
                 fontFamily: 'HankenGrotesk',
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 color: AppColors.primaryText,
               ),
+              overflow: TextOverflow.ellipsis,
             ),
-            Text(
-              // 'Choose a location',
+            const Text(
               'Select a site ',
               style: TextStyle(
                 fontFamily: 'HankenGrotesk',
@@ -1414,7 +1444,10 @@ class _HomePageState extends State<HomePage> {
         return RefreshIndicator(
           onRefresh: () async {
             context.read<ProjectBloc>().add(GetProjectsRequested());
-            await _fetchSites();
+            await Future.wait([
+              _fetchSites(),
+              _fetchCompany(),
+            ]);
           },
           child: ListView.builder(
             padding: EdgeInsets.symmetric(

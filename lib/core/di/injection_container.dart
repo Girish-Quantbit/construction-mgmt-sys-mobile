@@ -208,9 +208,7 @@ Future<void> init() async {
       downloadPDF: sl(),
     ),
   );
-  sl.registerFactory(
-    () => ApprovalsBloc(getApprovals: sl()),
-  );
+  sl.registerFactory(() => ApprovalsBloc(getApprovals: sl()));
   sl.registerFactory(
     () => SiteDiaryBloc(getSiteDiaries: sl(), getSiteDiaryDetails: sl()),
   );
