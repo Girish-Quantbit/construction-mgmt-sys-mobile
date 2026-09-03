@@ -22,10 +22,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     super.initState();
     _pages = [
       const HomePage(),
-      const PulsePage(),
-      const AlertsPage(),
+      // const PulsePage(),   // Hidden — Pulse
+      // const AlertsPage(), // Hidden — Alerts
       const ApprovalsPage(),
-      const DailyTaskPage(),
+      // const DailyTaskPage(), // Hidden — Tasks
     ];
   }
 
@@ -53,36 +53,39 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
                   vertical: 8.0,
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _buildNavItem(0, Icons.home_outlined, Icons.home, 'Home'),
+                    // Hidden — Pulse
+                    // _buildNavItem(
+                    //   1,
+                    //   Icons.show_chart_outlined,
+                    //   Icons.show_chart,
+                    //   'Pulse',
+                    // ),
+                    // Hidden — Alerts
+                    // _buildNavItem(
+                    //   2,
+                    //   Icons.warning_amber_rounded,
+                    //   Icons.warning_rounded,
+                    //   'Alerts',
+                    //   badgeCount: 2,
+                    // ),
                     _buildNavItem(
                       1,
-                      Icons.show_chart_outlined,
-                      Icons.show_chart,
-                      'Pulse',
-                    ),
-                    _buildNavItem(
-                      2,
-                      Icons.warning_amber_rounded,
-                      Icons.warning_rounded,
-                      'Alerts',
-                      badgeCount: 2,
-                    ),
-                    _buildNavItem(
-                      3,
                       Icons.verified_outlined,
                       Icons.verified,
                       'Approvals',
                       badgeCount: approvalsState.pendingCount,
                     ),
-                    _buildNavItem(
-                      4,
-                      Icons.assignment_outlined,
-                      Icons.assignment,
-                      'Tasks',
-                      badgeCount: 3,
-                    ),
+                    // Hidden — Tasks
+                    // _buildNavItem(
+                    //   4,
+                    //   Icons.assignment_outlined,
+                    //   Icons.assignment,
+                    //   'Tasks',
+                    //   badgeCount: 3,
+                    // ),
                   ],
                 ),
               ),
@@ -110,9 +113,11 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
         });
       },
       behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           Stack(
             clipBehavior: Clip.none,
             children: [
@@ -159,23 +164,27 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
 
-/// ==========================================
-/// Pulse Page (Daily Site Pulse dashboard)
-/// ==========================================
-class PulsePage extends StatefulWidget {
-  const PulsePage({super.key});
+// ==========================================
+// Pulse Page (Daily Site Pulse dashboard)
+// — Hidden from UI. Comment-out begins here.
+// ==========================================
 
-  @override
-  State<PulsePage> createState() => _PulsePageState();
-}
+// class PulsePage extends StatefulWidget {
+//   const PulsePage({super.key});
+//
+//   @override
+//   State<PulsePage> createState() => _PulsePageState();
+// }
 
-class _PulsePageState extends State<PulsePage> {
-  int _activeTab = 0; // 0: Site Pulse, 1: PTW, 2: Tasks (3)
+// class _PulsePageState extends State<PulsePage> {
+//   int _activeTab = 0; // 0: Site Pulse, 1: PTW, 2: Tasks (3)
 
+/* Hidden — PulsePageState body
   @override
   Widget build(BuildContext context) {
     const activeColor = Color(0xFF319F77);
@@ -873,8 +882,10 @@ class _PulsePageState extends State<PulsePage> {
   Widget _buildTasksTab() {
     return const DailyTaskView();
   }
-}
+} // end _PulsePageState
+*/ // end Hidden — Pulse page
 
+/* Hidden — AlertsPage
 /// ==========================================
 /// Alerts Page (Portfolio Snapshot Alerts)
 /// ==========================================
@@ -1360,4 +1371,5 @@ class _DailyTaskViewState extends State<DailyTaskView> {
       ),
     );
   }
-}
+} // end DailyTaskView
+*/ // end Hidden — AlertsPage, DailyTaskPage, DailyTaskView

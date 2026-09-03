@@ -13,22 +13,8 @@ class AppConfig {
   /// Home screen layout mode. Allowed values: 'list' or 'folder'.
   static const String homeScreenLayout = 'list';
 
-  // / Frappe server base URL (with trailing slash)
-  static String get baseUrl => dotenv.get(
-    'BASE_URL',
-    fallback: 'https://uat-aaryaconstructions.frappe.cloud/',
-  );
-
-  // / Frappe server base URL (with trailing slash)
-  // static String get baseUrl => dotenv.get(
-  //   'BASE_URL',
-  //   fallback: 'https://erpaaryaconstruction.m.frappe.cloud/',
-  // );
-
-  // static String get baseUrl => dotenv.get(
-  //   'BASE_URL',
-  //   fallback: 'https://construction-management.quantcloud.in/',
-  // );
+  /// Frappe server base URL (with trailing slash).
+  static String get baseUrl => dotenv.get('BASE_URL');
 
   /// OAuth client ID from Frappe OAuth Client settings
   static String get oauthClientId =>

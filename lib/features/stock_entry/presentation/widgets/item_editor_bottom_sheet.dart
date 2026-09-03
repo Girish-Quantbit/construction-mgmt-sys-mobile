@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cms/core/theme/app_sizes.dart';
 import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import 'package:cms/core/di/injection_container.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:cms/core/widgets/task_selection_widget.dart';
 
@@ -322,6 +323,12 @@ class _ItemEditorBottomSheetState extends State<ItemEditorBottomSheet> {
                                       ?.toString();
                                 }
                               } catch (_) {}
+                              if (companyName == null || companyName.isEmpty) {
+                                try {
+                                  companyName = sl<SharedPreferences>()
+                                      .getString('cached_company_name');
+                                } catch (_) {}
+                              }
 
                               double incomingRate = 0.0;
                               try {
@@ -341,8 +348,7 @@ class _ItemEditorBottomSheetState extends State<ItemEditorBottomSheet> {
                                           _item['s_warehouse'] ??
                                           _item['t_warehouse'] ??
                                           '',
-                                      'company':
-                                          companyName ?? 'Aarya Construction',
+                                      'company': companyName ?? '',
                                       'qty': 0,
                                       'voucher_type': 'Stock Entry',
                                       'allow_zero_valuation': 1,
