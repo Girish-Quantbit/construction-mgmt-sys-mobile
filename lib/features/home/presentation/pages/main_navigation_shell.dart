@@ -167,4 +167,4 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       ),
     );
   }
-}
+} // end DailyTaskView
